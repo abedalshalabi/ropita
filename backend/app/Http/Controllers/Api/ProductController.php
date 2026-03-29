@@ -1,0 +1,1511 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Http\Resources\ProductResource;
+use App\Models\Product;
+use App\Models\Category;
+use App\Models\Brand;
+use App\Models\ProductVariant;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Spatie\QueryBuilder\QueryBuilder;
+use Spatie\QueryBuilder\AllowedFilter;
+use App\Models\Filter;
+use App\Models\ProductImage;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\ProductImportTemplate;
+
+class ProductController extends Controller
+{
+    /**
+     * Transform FormData string values to appropriate types
+     */
+    private function transformFormData(array $data): array
+    {
+        // Convert boolean strings to actual booleans
+        $booleanFields = ['manage_stock', 'in_stock', 'is_active', 'is_featured'];
+        foreach ($booleanFields as $field) {
+            if (isset($data[$field])) {
+                // Convert string 'true'/'false' to boolean
+                $data[$field] = filter_var($data[$field], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                // If null (invalid), default to false
+                if ($data[$field] === null) {
+                    $data[$field] = false;
+                }
+            }
+        }
+
+        $arrayFields = ['features', 'specifications', 'filter_values', 'variants'];
+        foreach ($arrayFields as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $decoded = json_decode($data[$field], true);
+                $data[$field] = is_array($decoded) ? $decoded : [];
+            }
+        }
+
+        return $data;
+    }
+    /**
+     * Display a listing of the resource.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        // Start with base query - only show active products (including out of stock)
+        $query = Product::query()
+            ->where('is_active', true)
+            ->with(['category', 'categories', 'brand', 'variants']);
+
+        // Apply search filter FIRST (before QueryBuilder)
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('name', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('description', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('sku', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('features', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
+                  ->orWhereHas('category', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('categories', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('brand', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('variants', function ($q) use ($searchTerm) {
+                      $q->where('sku', 'like', '%' . $searchTerm . '%')
+                        ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
+                  });
+            });
+        }
+
+        // Apply category filter - include products from this category and all its subcategories
+        if ($request->has('category_id') && $request->category_id) {
+            $categoryId = $request->category_id;
+            $categoryIds = Category::getAllDescendantIdsFor($categoryId);
+            
+            $query->where(function($q) use ($categoryIds) {
+                // Check direct category_id column
+                $q->whereIn('category_id', $categoryIds)
+                  // OR check many-to-many categories relationship
+                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
+                      $categoryQuery->whereIn('categories.id', $categoryIds);
+                  });
+            });
+        }
+
+        // Apply brand filter
+        if ($request->has('brand_id') && $request->brand_id) {
+            $query->where('brand_id', $request->brand_id);
+        }
+
+        // Apply price range filter
+        if ($request->has('price_min') || $request->has('price_max')) {
+            $query->whereBetween('price', [
+                $request->price_min ?? 0,
+                $request->price_max ?? 999999
+            ]);
+        }
+
+        // Apply dynamic filter values (category-specific attributes)
+        // filter_values in DB can be:
+        //   Old format: {"الحجم": "كبير", "اللون": "أحمر"} (string per filter)
+        //   New format: {"الحجم": ["كبير", "متوسط"], "اللون": ["أحمر", "أزرق"]} (array per filter)
+        
+        // Collect all filters from both possible sources
+        $allFilters = [];
+        
+        // Source 1: filters parameter (array format)
+        if ($request->has('filters') && is_array($request->input('filters'))) {
+            $allFilters = array_merge($allFilters, $request->input('filters'));
+        }
+        
+        // Source 2: filter_values parameter (JSON string format)
+        if ($request->has('filter_values')) {
+            $filterValues = is_string($request->filter_values) 
+                ? json_decode($request->filter_values, true) 
+                : $request->filter_values;
+                
+            if (is_array($filterValues)) {
+                $allFilters = array_merge($allFilters, $filterValues);
+            }
+        }
+        
+        // Debug: Log what we're receiving
+        Log::info('Filter request data:', [
+            'has_filters' => $request->has('filters'),
+            'has_filter_values' => $request->has('filter_values'),
+            'merged_filters' => $allFilters,
+            'filter_count' => count($allFilters)
+        ]);
+        
+        // Apply all collected filters
+        if (!empty($allFilters)) {
+            foreach ($allFilters as $filterKey => $filterValue) {
+                if (empty($filterValue)) continue;
+                
+                // Handle incoming filter value - can be string or array
+                if (is_array($filterValue)) {
+                    $values = array_map('trim', $filterValue);
+                } else {
+                    $filterValue = trim($filterValue);
+                    // Handle multiple values separated by comma (for checkbox filters)
+                    $values = explode(',', $filterValue);
+                    $values = array_map('trim', $values);
+                }
+                $values = array_filter($values); // Remove empty values
+                
+                if (empty($values)) continue;
+                
+                // Each filter must match (AND between different filters)
+                // BUT within one filter, any of the selected values can match (OR between values)
+                // We use JSON_SEARCH which is much more robust for Arabic characters/Hamzas
+                // as it can match values regardless of the specific JSON path or key encoding.
+                $query->where(function($q) use ($filterKey, $values) {
+                    foreach ($values as $value) {
+                        // 1. Search in main product filter_values
+                        $q->orWhereRaw("JSON_SEARCH(filter_values, 'one', ?) IS NOT NULL", [$value]);
+                        
+                        // Try with normalized value (Alif without Hamza) to be extra safe
+                        $normalizedValue = preg_replace('/[أإآ]/u', 'ا', $value);
+                        if ($value !== $normalizedValue) {
+                            $q->orWhereRaw("JSON_SEARCH(filter_values, 'one', ?) IS NOT NULL", [$normalizedValue]);
+                        }
+                        
+                        // 2. OR search in any of its variants
+                        $q->orWhereHas('variants', function($variantQ) use ($value, $normalizedValue) {
+                            $variantQ->where(function($valQ) use ($value, $normalizedValue) {
+                                $valQ->whereRaw("JSON_SEARCH(variant_values, 'one', ?) IS NOT NULL", [$value]);
+                                if ($value !== $normalizedValue) {
+                                    $valQ->orWhereRaw("JSON_SEARCH(variant_values, 'one', ?) IS NOT NULL", [$normalizedValue]);
+                                }
+                            });
+                        });
+                    }
+                });
+            }
+        }
+
+        // Apply sorting
+        $sortBy = $request->get('sort', 'created_at');
+        $sortOrder = $request->get('order', 'desc');
+        $sortMap = ['name' => 'name', 'price' => 'price', 'created_at' => 'created_at', 'rating' => 'rating', 'sales_count' => 'sales_count'];
+        $sortField = $sortMap[$sortBy] ?? 'created_at';
+        $query->orderBy($sortField, $sortOrder);
+
+        // Eager load everything needed to avoid N+1 queries
+        $query->with(['variants', 'categories', 'category', 'brand', 'images']);
+        
+        $perPage = $request->get('per_page', 15);
+        $products = $query->paginate($perPage);
+
+        // Dynamic Stock Management: Recalculate "In Stock" status AND price based on variants
+        foreach ($products as $product) {
+            $hasVariants = $product->variants && $product->variants->count() > 0;
+            $product->has_variants = $hasVariants;
+            
+            // Critical check: If the manual status is "out_of_stock", it should OVERRIDE everything
+            $manualOutStock = ($product->stock_status === 'out_of_stock');
+            
+            if ($hasVariants) {
+                $variantsToConsider = $product->variants;
+                
+                // If filters are active, only consider variants that match selected filters
+                if (!empty($allFilters)) {
+                    $variantsToConsider = $product->variants->filter(function($variant) use ($allFilters) {
+                        foreach ($allFilters as $filterKey => $filterValue) {
+                            $values = is_array($filterValue) ? $filterValue : explode(',', $filterValue);
+                            $values = array_map('trim', array_filter($values));
+                            if (empty($values)) continue;
+
+                            $match = false;
+                            $variantJson = json_encode($variant->variant_values, JSON_UNESCAPED_UNICODE);
+                            
+                            foreach ($values as $val) {
+                                $normalizedVal = preg_replace('/[أإآ]/u', 'ا', $val);
+                                if (mb_strpos($variantJson, '"' . $val . '"') !== false || 
+                                    mb_strpos($variantJson, '"' . $normalizedVal . '"') !== false) {
+                                    $match = true;
+                                    break;
+                                }
+                            }
+                            if (!$match) return false;
+                        }
+                        return true;
+                    });
+                }
+
+                // Update product effective stock status and quantities
+                if ($variantsToConsider->count() > 0) {
+                    $totalStock = $variantsToConsider->sum('stock_quantity');
+                    $product->stock_quantity = $totalStock;
+                    
+                    // Manual status overrides
+                    if ($manualOutStock) {
+                        $product->in_stock = false;
+                        $product->stock_status = 'out_of_stock';
+                    } elseif ($product->stock_status === 'in_stock') {
+                        $product->in_stock = true;
+                        $product->stock_status = 'in_stock';
+                    } else {
+                        // stock_based logic: in_stock if totalStock > 0
+                        $product->in_stock = $totalStock > 0;
+                        $product->stock_status = $totalStock > 0 ? 'in_stock' : 'out_of_stock';
+                    }
+                    
+                    // Update price to use variant price (Lowest price of considered variants)
+                    $minPrice = $variantsToConsider->min('price');
+                    $maxPrice = $variantsToConsider->max('price');
+                    if ($minPrice > 0) {
+                        $product->price = (float)$minPrice;
+                        if ($minPrice != $maxPrice) {
+                            $product->has_price_range = true;
+                            $product->max_price = (float)$maxPrice;
+                        }
+                    }
+                } else if (!empty($allFilters)) {
+                    // If no variants match at all for these filters, it's effectively out of stock
+                    $product->in_stock = false;
+                    $product->stock_status = 'out_of_stock';
+                    $product->stock_quantity = 0;
+                }
+            } else {
+                // If no variants, just ensure manual status overrides are respected
+                if ($manualOutStock) {
+                    $product->in_stock = false;
+                } elseif ($product->stock_status === 'in_stock') {
+                    $product->in_stock = true;
+                }
+            }
+        }
+
+        return response()->json([
+            'data' => ProductResource::collection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        // Handle categories from FormData (may come as JSON string)
+        if ($request->has('categories')) {
+            $categoriesInput = $request->input('categories');
+            if (is_string($categoriesInput)) {
+                $decoded = json_decode($categoriesInput, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $request->merge(['categories' => $decoded]);
+                }
+            }
+        }
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'slug' => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'short_description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'original_price' => 'nullable|numeric|min:0',
+            'compare_price' => 'nullable|numeric|min:0',
+            'cost_price' => 'nullable|numeric|min:0',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'sku' => 'required|string|unique:products,sku',
+            'stock_quantity' => 'required|integer',
+            'manage_stock' => 'nullable|string|in:true,false,1,0',
+            'stock_status' => 'nullable|string',
+            'in_stock' => 'nullable|string|in:true,false,1,0',
+            'category_id' => 'nullable|exists:categories,id', // Keep for backward compatibility
+            'categories' => 'nullable|array', // New: multiple categories
+            'categories.*' => 'exists:categories,id',
+            'brand_id' => 'nullable|exists:brands,id',
+            'weight' => 'nullable|numeric|min:0',
+            'dimensions' => 'nullable|string',
+            'warranty' => 'nullable|string',
+            'delivery_time' => 'nullable|string',
+            'features' => 'nullable|string',
+            'specifications' => 'nullable|string',
+            'filter_values' => 'nullable|string',
+            'variants' => 'nullable|string',
+            // Note: images validation is handled separately after main validation
+            'rating' => 'nullable|numeric|min:0|max:5',
+            'reviews_count' => 'nullable|integer|min:0',
+            'views_count' => 'nullable|integer|min:0',
+            'sales_count' => 'nullable|integer|min:0',
+            'is_active' => 'nullable|string|in:true,false,1,0',
+            'is_featured' => 'nullable|string|in:true,false,1,0',
+            'sort_order' => 'nullable|integer',
+            'meta_title' => 'nullable|string',
+            'meta_description' => 'nullable|string',
+            'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'cover_image_url' => 'nullable|string|url',
+        ]);
+
+        // Transform string values to appropriate types
+        $validated = $this->transformFormData($validated);
+
+        // Generate slug if not provided
+        if (empty($validated['slug'])) {
+            $slug = Str::slug($validated['name']);
+            $originalSlug = $slug;
+            $counter = 1;
+            while (Product::where('slug', $slug)->exists()) {
+                $slug = $originalSlug . '-' . $counter;
+                $counter++;
+            }
+            $validated['slug'] = $slug;
+        }
+
+        // Extract categories from validated data
+        $categories = [];
+        if (isset($validated['categories']) && is_array($validated['categories'])) {
+            $categories = $validated['categories'];
+            unset($validated['categories']);
+        } elseif (isset($validated['category_id'])) {
+            // Backward compatibility: if only category_id is provided, use it
+            $categories = [$validated['category_id']];
+        }
+
+        // If stock_status is 'stock_based', update in_stock based on stock_quantity
+        if (isset($validated['stock_status']) && $validated['stock_status'] === 'stock_based') {
+            $validated['in_stock'] = ($validated['stock_quantity'] ?? 0) > 0;
+        }
+
+        // Handle cover image
+        if ($request->hasFile('cover_image')) {
+            $coverImage = $request->file('cover_image');
+            $filename = time() . '_cover_' . Str::random(10) . '.' . $coverImage->getClientOriginalExtension();
+            $path = $coverImage->storeAs('products/covers', $filename, 'public');
+            $validated['cover_image'] = asset('storage/' . $path);
+        } elseif ($request->has('cover_image_url')) {
+            $validated['cover_image'] = $request->input('cover_image_url');
+        }
+
+        $product = Product::create($validated);
+
+        // Attach categories to product
+        if (!empty($categories)) {
+            $product->categories()->sync($categories);
+        }
+
+        // Handle images: new image URLs and new image file uploads
+        Log::info('Checking for images in request for new product');
+        
+        // Get new image URLs (direct URLs)
+        $newImageUrls = [];
+        if ($request->has('image_urls')) {
+            $imageUrlsJson = $request->input('image_urls');
+            if (is_string($imageUrlsJson)) {
+                $imageUrlsJson = json_decode($imageUrlsJson, true);
+            }
+            if (is_array($imageUrlsJson)) {
+                $newImageUrls = $imageUrlsJson;
+            }
+            Log::info('New image URLs: ' . count($newImageUrls));
+        }
+        
+        // Process new image URLs
+        $urlImages = [];
+        if (!empty($newImageUrls)) {
+            foreach ($newImageUrls as $index => $url) {
+                if (filter_var($url, FILTER_VALIDATE_URL)) {
+                    $urlImages[] = [
+                        'image_path' => $url,
+                        'image_url' => $url,
+                        'alt_text' => null,
+                        'is_primary' => $index === 0,
+                        'sort_order' => $index,
+                    ];
+                }
+            }
+        }
+        
+        // Check for new image file uploads
+        $imageFiles = [];
+        if ($request->hasFile('images')) {
+            $imageFiles = $request->file('images');
+            if (!is_array($imageFiles)) {
+                $imageFiles = [$imageFiles];
+            }
+            Log::info('Found images via hasFile(images): ' . count($imageFiles));
+        } else {
+            // Try to get images[0], images[1], etc. (bracket notation)
+            $index = 0;
+            while ($request->hasFile("images[{$index}]")) {
+                $imageFiles[] = $request->file("images[{$index}]");
+                $index++;
+            }
+            // If no images found with bracket notation, try dot notation
+            if (count($imageFiles) === 0) {
+                $index = 0;
+                while ($request->hasFile("images.{$index}")) {
+                    $imageFiles[] = $request->file("images.{$index}");
+                    $index++;
+                }
+                Log::info('Found images via images.X (dot notation): ' . count($imageFiles));
+            } else {
+                Log::info('Found images via images[X] (bracket notation): ' . count($imageFiles));
+            }
+        }
+        
+        // Process new image file uploads
+        $uploadedImages = [];
+        if (count($imageFiles) > 0) {
+            // Validate each image file
+            foreach ($imageFiles as $index => $imageFile) {
+                if (!$imageFile || !$imageFile->isValid()) {
+                    Log::warning('Invalid image file at index ' . $index);
+                    continue;
+                }
+                
+                // Validate file type and size
+                $validator = Validator::make(
+                    ['image' => $imageFile],
+                    [
+                        'image' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240', // 10MB max
+                    ]
+                );
+                
+                if ($validator->fails()) {
+                    Log::warning('Image validation failed at index ' . $index . ': ' . json_encode($validator->errors()));
+                    continue;
+                }
+            }
+            
+            Log::info('Received ' . count($imageFiles) . ' image file(s) for new product');
+            
+            // Process new images
+            foreach ($imageFiles as $index => $imageFile) {
+                if (!$imageFile || !$imageFile->isValid()) {
+                    continue; // Skip invalid files (already logged above)
+                }
+                
+                // Generate unique filename
+                $filename = time() . '_' . $index . '_' . Str::random(10) . '.' . $imageFile->getClientOriginalExtension();
+                
+                Log::info('Processing image ' . ($index + 1) . ': ' . $imageFile->getClientOriginalName() . ' -> ' . $filename);
+                
+                // Store the file
+                $path = $imageFile->storeAs('products', $filename, 'public');
+                
+                // Create image data array
+                $imageData = [
+                    'image_path' => $path,
+                    'image_url' => asset('storage/' . $path),
+                    'alt_text' => null,
+                    'is_primary' => false, // Will be set based on total images
+                    'sort_order' => count($urlImages) + $index, // Continue from URL images
+                ];
+                
+                $uploadedImages[] = $imageData;
+                
+                Log::info('Prepared image data for product ' . $product->id . ': ' . $path . ' (sort_order: ' . $imageData['sort_order'] . ')');
+            }
+        } else {
+            Log::info('No image files received for new product');
+            Log::info('Request all files: ' . json_encode($request->allFiles()));
+        }
+        
+        // Merge all images: URL images + uploaded images
+        $allImages = array_merge($urlImages, $uploadedImages);
+        
+        // Set is_primary for the first image
+        if (count($allImages) > 0) {
+            $allImages[0]['is_primary'] = true;
+        }
+        
+        // Update product images column
+        if (count($allImages) > 0) {
+            $product->images = $allImages;
+            $product->save();
+            Log::info('Total images for product ' . $product->id . ': ' . count($allImages) . ' (URLs: ' . count($urlImages) . ', uploaded: ' . count($uploadedImages) . ')');
+        } else {
+            Log::info('No images to save for product ' . $product->id);
+        }
+
+        // Save variants if provided
+        if (isset($validated['variants']) && is_array($validated['variants'])) {
+            foreach ($validated['variants'] as $variantData) {
+                // Determine stock quantity for variant (fall back to 0 if not provided)
+                $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
+                // If variant has its own price, use it, else null
+                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
+                
+                $product->variants()->create([
+                    'variant_values' => $variantData['variant_values'] ?? [],
+                    'price' => $varPrice,
+                    'stock_quantity' => $varStock,
+                    'sku' => $variantData['sku'] ?? null,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Product created successfully',
+            'data' => new ProductResource($product->load(['category', 'categories', 'brand', 'variants']))
+        ], 201);
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(Request $request, Product $product): JsonResponse
+    {
+        // Prevent double increment in same session/refresh
+        $viewedProducts = session()->get('viewed_products', []);
+        
+        if (!in_array($product->id, $viewedProducts) && !$request->has('no_increment')) {
+            $product->increment('views_count');
+            $viewedProducts[] = $product->id;
+            session()->put('viewed_products', $viewedProducts);
+        }
+
+        return response()->json([
+            'data' => new ProductResource($product->load(['category', 'categories', 'brand', 'reviews.user', 'variants']))
+        ]);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(Request $request, Product $product): JsonResponse
+    {
+        // Handle categories from FormData (may come as JSON string)
+        if ($request->has('categories')) {
+            $categoriesInput = $request->input('categories');
+            if (is_string($categoriesInput)) {
+                $decoded = json_decode($categoriesInput, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $request->merge(['categories' => $decoded]);
+                }
+            }
+        }
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'slug' => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'short_description' => 'nullable|string',
+            'price' => 'sometimes|numeric|min:0',
+            'original_price' => 'nullable|numeric|min:0',
+            'compare_price' => 'nullable|numeric|min:0',
+            'cost_price' => 'nullable|numeric|min:0',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'sku' => 'sometimes|string|unique:products,sku,' . $product->id,
+            'stock_quantity' => 'sometimes|integer',
+            'manage_stock' => 'nullable|string|in:true,false,1,0',
+            'stock_status' => 'nullable|string',
+            'in_stock' => 'nullable|string|in:true,false,1,0',
+            'category_id' => 'nullable|integer|exists:categories,id', // Keep for backward compatibility
+            'categories' => 'nullable|array', // New: multiple categories
+            'categories.*' => 'exists:categories,id',
+            'brand_id' => 'nullable|integer|min:0',
+            'weight' => 'nullable|numeric|min:0',
+            'dimensions' => 'nullable|string',
+            'warranty' => 'nullable|string',
+            'delivery_time' => 'nullable|string',
+
+            'cover_image' => 'nullable', // Allow separate validation for file or string or null
+            // Note: images validation is handled separately after main validation
+            'is_active' => 'sometimes|string|in:true,false,1,0',
+            'is_featured' => 'sometimes|string|in:true,false,1,0',
+            'sort_order' => 'nullable|integer',
+            'rating' => 'nullable|numeric|min:0|max:5',
+            'reviews_count' => 'nullable|integer|min:0',
+            'views_count' => 'nullable|integer|min:0',
+            'sales_count' => 'nullable|integer|min:0',
+            'meta_title' => 'nullable|string',
+            'meta_description' => 'nullable|string',
+            'features' => 'nullable|string',
+            'specifications' => 'nullable|string',
+            'filter_values' => 'nullable|string',
+            'variants' => 'nullable|string',
+        ]);
+
+        // Transform string values to appropriate types
+        $validated = $this->transformFormData($validated);
+
+        // Handle brand_id = 0 by setting to null
+        if (isset($validated['brand_id']) && $validated['brand_id'] == 0) {
+            $validated['brand_id'] = null;
+        }
+        
+        // Extract categories from validated data
+        $categories = null;
+        if (isset($validated['categories']) && is_array($validated['categories'])) {
+            $categories = $validated['categories'];
+            unset($validated['categories']);
+        } elseif (isset($validated['category_id'])) {
+            // Backward compatibility: if only category_id is provided, use it
+            $categories = [$validated['category_id']];
+        }
+
+        // If stock_status is 'stock_based', update in_stock based on stock_quantity
+        if (isset($validated['stock_status']) && $validated['stock_status'] === 'stock_based') {
+            $stockQuantity = $validated['stock_quantity'] ?? $product->stock_quantity;
+            $validated['in_stock'] = $stockQuantity > 0;
+        }
+
+        // Update product
+        // Handle cover image
+        if ($request->hasFile('cover_image')) {
+            // Delete old cover if exists locally
+            if ($product->cover_image && str_contains($product->cover_image, asset('storage/'))) {
+                $oldPath = str_replace(asset('storage/'), '', $product->cover_image);
+                if (Storage::disk('public')->exists($oldPath)) {
+                    Storage::disk('public')->delete($oldPath);
+                }
+            }
+
+            $coverImage = $request->file('cover_image');
+            $filename = time() . '_cover_' . Str::random(10) . '.' . $coverImage->getClientOriginalExtension();
+            $path = $coverImage->storeAs('products/covers', $filename, 'public');
+            $validated['cover_image'] = asset('storage/' . $path);
+        } elseif ($request->has('cover_image_url')) {
+            $validated['cover_image'] = $request->input('cover_image_url');
+        }
+
+        Log::info('Validated data for product update:', [
+            'has_filter_values' => isset($validated['filter_values']),
+            'filter_values_type' => isset($validated['filter_values']) ? gettype($validated['filter_values']) : 'null',
+        ]);
+
+        $product->update($validated);
+
+        // Explicitly set filter_values if and only if it was present in validated data
+        // This ensures JSON fields are saved correctly even when passed as arrays via FormData logic
+        if (isset($validated['filter_values'])) {
+            $product->filter_values = $validated['filter_values'];
+        }
+        if (isset($validated['specifications'])) {
+            $product->specifications = $validated['specifications'];
+        }
+        if (isset($validated['features'])) {
+            $product->features = $validated['features'];
+        }
+        
+        $product->save();
+
+        // Sync categories if provided
+        if ($categories !== null) {
+            $product->categories()->sync($categories);
+        }
+
+        // Handle images: existing images to keep, new image URLs, and new image file uploads
+        Log::info('Checking for images in request for product ' . $product->id);
+        
+        // Get existing images that should be kept (sent from frontend)
+        $imagesToKeep = [];
+        if ($request->has('existing_images')) {
+            $existingImagesJson = $request->input('existing_images');
+            if (is_string($existingImagesJson)) {
+                $existingImagesJson = json_decode($existingImagesJson, true);
+            }
+            if (is_array($existingImagesJson)) {
+                $imagesToKeep = $existingImagesJson;
+            }
+            Log::info('Existing images to keep: ' . count($imagesToKeep));
+        } else {
+            // If no existing_images sent, keep all current images
+            $imagesToKeep = $product->images ?? [];
+            if (!is_array($imagesToKeep)) {
+                $imagesToKeep = [];
+            }
+            Log::info('No existing_images sent, keeping all current images: ' . count($imagesToKeep));
+        }
+        
+        // Get new image URLs (direct URLs)
+        $newImageUrls = [];
+        if ($request->has('image_urls')) {
+            $imageUrlsJson = $request->input('image_urls');
+            if (is_string($imageUrlsJson)) {
+                $imageUrlsJson = json_decode($imageUrlsJson, true);
+            }
+            if (is_array($imageUrlsJson)) {
+                $newImageUrls = $imageUrlsJson;
+            }
+            Log::info('New image URLs: ' . count($newImageUrls));
+        }
+        
+        // Process new image URLs
+        $urlImages = [];
+        if (!empty($newImageUrls)) {
+            $maxSortOrder = -1;
+            if (!empty($imagesToKeep)) {
+                $maxSortOrder = max(array_column($imagesToKeep, 'sort_order')) ?? -1;
+            }
+            
+            foreach ($newImageUrls as $index => $url) {
+                if (filter_var($url, FILTER_VALIDATE_URL)) {
+                    $sortOrder = $maxSortOrder + 1 + $index;
+                    $isPrimary = (count($imagesToKeep) === 0 && $index === 0);
+                    
+                    $urlImages[] = [
+                        'image_path' => $url,
+                        'image_url' => $url,
+                        'alt_text' => null,
+                        'is_primary' => $isPrimary,
+                        'sort_order' => $sortOrder,
+                    ];
+                }
+            }
+        }
+        
+        // Check for new image file uploads
+        $imageFiles = [];
+        if ($request->hasFile('images')) {
+            $imageFiles = $request->file('images');
+            if (!is_array($imageFiles)) {
+                $imageFiles = [$imageFiles];
+            }
+            Log::info('Found images via hasFile(images): ' . count($imageFiles));
+        } else {
+            // Try to get images[0], images[1], etc. (bracket notation)
+            $index = 0;
+            while ($request->hasFile("images[{$index}]")) {
+                $imageFiles[] = $request->file("images[{$index}]");
+                $index++;
+            }
+            // If no images found with bracket notation, try dot notation
+            if (count($imageFiles) === 0) {
+                $index = 0;
+                while ($request->hasFile("images.{$index}")) {
+                    $imageFiles[] = $request->file("images.{$index}");
+                    $index++;
+                }
+                Log::info('Found images via images.X (dot notation): ' . count($imageFiles));
+            } else {
+                Log::info('Found images via images[X] (bracket notation): ' . count($imageFiles));
+            }
+        }
+        
+        // Process new image file uploads
+        $uploadedImages = [];
+        if (count($imageFiles) > 0) {
+            // Validate each image file
+            foreach ($imageFiles as $index => $imageFile) {
+                if (!$imageFile || !$imageFile->isValid()) {
+                    Log::warning('Invalid image file at index ' . $index);
+                    continue;
+                }
+                
+                // Validate file type and size
+                $validator = Validator::make(
+                    ['image' => $imageFile],
+                    [
+                        'image' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240', // 10MB max
+                    ]
+                );
+                
+                if ($validator->fails()) {
+                    Log::warning('Image validation failed at index ' . $index . ': ' . json_encode($validator->errors()));
+                    continue;
+                }
+            }
+            
+            Log::info('Received ' . count($imageFiles) . ' image file(s) for product ' . $product->id);
+            
+            // Get the highest sort_order
+            $maxSortOrder = -1;
+            $allCurrentImages = array_merge($imagesToKeep, $urlImages);
+            if (!empty($allCurrentImages)) {
+                $maxSortOrder = max(array_column($allCurrentImages, 'sort_order')) ?? -1;
+            }
+            
+            // Process new uploaded images
+            foreach ($imageFiles as $index => $imageFile) {
+                if (!$imageFile || !$imageFile->isValid()) {
+                    continue;
+                }
+                
+                // Generate unique filename
+                $filename = time() . '_' . $index . '_' . Str::random(10) . '.' . $imageFile->getClientOriginalExtension();
+                
+                Log::info('Processing image ' . ($index + 1) . ': ' . $imageFile->getClientOriginalName() . ' -> ' . $filename);
+                
+                // Store the file
+                $path = $imageFile->storeAs('products', $filename, 'public');
+                
+                // Calculate sort_order: start from maxSortOrder + 1
+                $sortOrder = $maxSortOrder + 1 + $index;
+                
+                // Only set as primary if this is the first new image AND there are no existing images
+                $isPrimary = (count($allCurrentImages) === 0 && $index === 0);
+                
+                // Create image data array
+                $imageData = [
+                    'image_path' => $path,
+                    'image_url' => asset('storage/' . $path),
+                    'alt_text' => null,
+                    'is_primary' => $isPrimary,
+                    'sort_order' => $sortOrder,
+                ];
+                
+                $uploadedImages[] = $imageData;
+                
+                Log::info('Prepared image data for product ' . $product->id . ': ' . $path . ' (sort_order: ' . $sortOrder . ', is_primary: ' . ($isPrimary ? 'true' : 'false') . ')');
+            }
+        }
+        
+        // Merge all images: kept images + URL images + uploaded images
+        $allImages = array_merge($imagesToKeep, $urlImages, $uploadedImages);
+        
+        // Update product images column
+        $product->images = $allImages;
+        $product->save();
+        
+        $finalImagesCount = count($allImages);
+        Log::info('Total images for product ' . $product->id . ' after update: ' . $finalImagesCount . ' (kept: ' . count($imagesToKeep) . ', URLs: ' . count($urlImages) . ', uploaded: ' . count($uploadedImages) . ')');
+
+        // Update variants if provided
+        if (isset($validated['variants']) && is_array($validated['variants'])) {
+            // Delete existing variants
+            $product->variants()->delete();
+            
+            // Create new variants
+            foreach ($validated['variants'] as $variantData) {
+                // Determine stock quantity for variant (fall back to 0 if not provided)
+                $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
+                // If variant has its own price, use it, else null
+                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
+                
+                $product->variants()->create([
+                    'variant_values' => $variantData['variant_values'] ?? [],
+                    'price' => $varPrice,
+                    'stock_quantity' => $varStock,
+                    'sku' => $variantData['sku'] ?? null,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Product updated successfully',
+            'data' => new ProductResource($product->load(['category', 'categories', 'brand', 'variants']))
+        ], 200);
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(Product $product): JsonResponse
+    {
+        $product->delete();
+
+        return response()->json([
+            'message' => 'Product deleted successfully'
+        ]);
+    }
+
+    /**
+     * Remove multiple products from storage.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'integer|exists:products,id'
+        ]);
+
+        Product::whereIn('id', $request->product_ids)->delete();
+
+        return response()->json([
+            'message' => 'Products deleted successfully'
+        ]);
+    }
+
+    /**
+     * Get featured products
+     */
+    public function featured(): JsonResponse
+    {
+        $products = Product::with(['category', 'brand', 'images'])
+            ->where('is_featured', true)
+            ->where('is_active', true)
+            ->orderBy('created_at', 'desc')
+            ->limit(12)
+            ->get();
+
+        return response()->json([
+            'data' => ProductResource::collection($products)
+        ]);
+    }
+
+    /**
+     * Get latest products
+     */
+    public function latest(): JsonResponse
+    {
+        $products = Product::with(['category', 'brand', 'images'])
+            ->where('is_active', true)
+            ->orderBy('created_at', 'desc')
+            ->limit(12)
+            ->get();
+
+        return response()->json([
+            'data' => ProductResource::collection($products)
+        ]);
+    }
+
+    /**
+     * Get products by category
+     */
+    public function byCategory(Category $category): JsonResponse
+    {
+        // Get all category IDs including subcategories
+        $categoryIds = $category->getAllDescendantIds();
+        
+        $products = Product::with(['category', 'brand'])
+            ->where(function($q) use ($categoryIds) {
+                $q->whereIn('category_id', $categoryIds)
+                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
+                      $categoryQuery->whereIn('categories.id', $categoryIds);
+                  });
+            })
+            ->where('is_active', true)
+            ->where('in_stock', true)
+            ->orderBy('created_at', 'desc')
+            ->paginate(15);
+
+        return response()->json([
+            'data' => ProductResource::collection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Get products by brand
+     */
+    public function byBrand(Brand $brand): JsonResponse
+    {
+        $products = Product::with(['category', 'brand'])
+            ->where('brand_id', $brand->id)
+            ->where('is_active', true)
+            ->where('in_stock', true)
+            ->orderBy('created_at', 'desc')
+            ->paginate(15);
+
+        return response()->json([
+            'data' => ProductResource::collection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Admin: Display a listing of all products (including inactive)
+     */
+    public function adminIndex(Request $request): JsonResponse
+    {
+        $query = Product::query()->with(['category', 'brand']);
+
+        // Apply search filter FIRST (before QueryBuilder)
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('name', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('description', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('sku', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('features', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
+                  ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
+                  ->orWhereHas('category', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('categories', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('brand', function ($q) use ($searchTerm) {
+                      $q->where('name', 'like', '%' . $searchTerm . '%');
+                  })
+                  ->orWhereHas('variants', function ($q) use ($searchTerm) {
+                      $q->where('sku', 'like', '%' . $searchTerm . '%')
+                        ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
+                  });
+            });
+        }
+
+        // Apply other filters
+        $query = QueryBuilder::for($query)
+            ->allowedFilters([
+                'name',
+                'price',
+                'category_id',
+                'brand_id',
+                'is_featured',
+                'in_stock',
+                'is_active',
+                AllowedFilter::exact('category_id'),
+                AllowedFilter::exact('brand_id'),
+                AllowedFilter::scope('price_range'),
+            ])
+            ->allowedSorts(['name', 'price', 'created_at', 'rating', 'sales_count', 'views_count'])
+            ->defaultSort('-created_at');
+
+        // Apply category filter - include products from this category and all its subcategories
+        if ($request->has('category_id') && $request->category_id) {
+            $categoryIds = Category::getAllDescendantIdsFor($request->category_id);
+            $query->where(function($q) use ($categoryIds) {
+                $q->whereIn('category_id', $categoryIds)
+                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
+                      $categoryQuery->whereIn('categories.id', $categoryIds);
+                  });
+            });
+        }
+
+        // Apply brand filter
+        if ($request->has('brand_id') && $request->brand_id) {
+            $query->where('brand_id', $request->brand_id);
+        }
+
+        // Apply stock status filter
+        if ($request->has('stock_status') && $request->stock_status !== 'all') {
+            if ($request->stock_status === 'in_stock') {
+                $query->where('in_stock', true);
+            } elseif ($request->stock_status === 'out_of_stock') {
+                $query->where('in_stock', false);
+            } elseif ($request->stock_status === 'low_stock') {
+                $query->where('stock_quantity', '<=', 5);
+            }
+        }
+
+        // Apply status filter
+        if ($request->has('status') && $request->status !== 'all') {
+            if ($request->status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($request->status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        // Apply featured filter
+        if ($request->has('featured') && $request->featured !== 'all') {
+            if ($request->featured === 'featured') {
+                $query->where('is_featured', true);
+            } elseif ($request->featured === 'not_featured') {
+                $query->where('is_featured', false);
+            }
+        }
+
+        // Apply price range filter
+        if ($request->has('price_min') || $request->has('price_max')) {
+            $query->whereBetween('price', [
+                $request->price_min ?? 0,
+                $request->price_max ?? 999999
+            ]);
+        }
+
+        // Apply discount filter
+        if ($request->has('has_discount') && $request->has_discount === 'true') {
+            $query->where('discount_percentage', '>', 0);
+        }
+
+        if ($request->has('discount_min') || $request->has('discount_max')) {
+            $query->whereBetween('discount_percentage', [
+                $request->discount_min ?? 0,
+                $request->discount_max ?? 100
+            ]);
+        }
+
+        $products = $query->with(['category', 'brand'])->paginate($request->get('per_page', 12));
+
+        return response()->json([
+            'data' => ProductResource::collection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+            ]
+        ]);
+    }
+
+    /**
+     * Admin: Display the specified product
+     */
+    public function adminShow(Product $product): JsonResponse
+    {
+        return response()->json([
+            'data' => new ProductResource($product->load(['category', 'categories', 'brand', 'reviews.user', 'variants']))
+        ]);
+    }
+
+    /**
+     * Admin: Delete specific variant
+     */
+    public function destroyVariant(ProductVariant $variant): JsonResponse
+    {
+        $variant->delete();
+
+        return response()->json([
+            'message' => 'Variant deleted successfully'
+        ]);
+    }
+    /**
+     * Bulk apply discount to selected products
+     */
+    public function bulkApplyDiscount(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'exists:products,id',
+            'discount_percentage' => 'required|numeric|min:0|max:100',
+        ]);
+
+        $productIds = $validated['product_ids'];
+        $percentage = $validated['discount_percentage'];
+
+        Product::whereIn('id', $productIds)
+            ->update(['discount_percentage' => $percentage]);
+
+        return response()->json([
+            'message' => 'Bulk discount applied successfully',
+            'count' => count($productIds)
+        ]);
+    }
+    /**
+     * Export an Excel template for product import with dynamic filter columns and dropdowns.
+     */
+    public function exportImportTemplate()
+    {
+        return Excel::download(new ProductImportTemplate, 'products_template.xlsx');
+    }
+
+    /**
+     * Import products from CSV
+     */
+    public function importProducts(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt,xlsx,xls',
+            'images.*' => 'nullable|file|image|max:10240',
+        ]);
+
+        $file = $request->file('file');
+        $uploadedFiles = $request->file('images') ?? [];
+        
+        $fileMap = [];
+        foreach ($uploadedFiles as $uFile) {
+            $fileMap[$uFile->getClientOriginalName()] = $uFile;
+        }
+
+        // Use Excel::toArray to handle both CSV and XLSX
+        $rows = Excel::toArray(new \stdClass(), $file)[0];
+        
+        if (empty($rows)) {
+            return response()->json(['message' => 'ملف فارغ'], 422);
+        }
+
+        $headers = array_shift($rows);
+        
+        $rowCount = 0;
+        $createdCount = 0;
+        $updatedCount = 0;
+        $errors = [];
+        
+        // Helper to normalize Arabic strings for better matching
+        $normalize = function($str) {
+            $str = trim($str);
+            $str = preg_replace('/[أإآ]/u', 'ا', $str);
+            $str = str_replace('ة', 'ه', $str);
+            $str = preg_replace('/\s+/', '', $str);
+            return mb_strtolower($str);
+        };
+
+        // Cache filters for faster and smarter lookup
+        $allFilters = Filter::all();
+        $filterMap = [];
+        foreach ($allFilters as $f) {
+            $filterMap[$normalize($f->name)] = $f->name;
+        }
+
+        DB::beginTransaction();
+        try {
+            $currentProduct = null;
+            $lastSku = null;
+
+            foreach ($rows as $row) {
+                // Safe mapping of headers to row data
+                $data = [];
+                foreach ($headers as $index => $header) {
+                    $cleanHeader = trim($header);
+                    if ($cleanHeader === '') continue;
+                    $data[$cleanHeader] = $row[$index] ?? null;
+                }
+                
+                $sku = trim($data['sku'] ?? '');
+                
+                // Skip empty rows or guidance rows
+                if (!$sku || str_contains($sku, 'GUIDE')) continue;
+
+                $rowCount++;
+
+                // If SKU matches last row, it's a variant for the SAME product
+                if ($sku === $lastSku && $currentProduct) {
+                    // This is a Variant Row ($sku === $lastSku)
+                    $this->processVariantRow($currentProduct, $data);
+                    
+                    // --- Filter Aggregation for Parent ---
+                    $parentFilters = $currentProduct->filter_values ?: [];
+                    $rowFilters = $this->extractFiltersFromRow($data, $normalize, $filterMap);
+                    
+                    $updated = false;
+                    foreach ($rowFilters as $name => $val) {
+                        if (!isset($parentFilters[$name])) {
+                            $parentFilters[$name] = [trim($val)];
+                            $updated = true;
+                        } else {
+                            $currentVals = (array)$parentFilters[$name];
+                            if (!in_array(trim($val), $currentVals)) {
+                                $currentVals[] = trim($val);
+                                $parentFilters[$name] = $currentVals;
+                                $updated = true;
+                            }
+                        }
+                    }
+                    if ($updated) {
+                        $currentProduct->filter_values = $parentFilters;
+                        $currentProduct->save();
+                    }
+                    continue;
+                }
+
+                // New Product Row
+                $lastSku = $sku;
+                
+                // Identify Categories (can be multiple separated by comma)
+                $categoryIds = [];
+                $catInput = trim($data['categories'] ?? '');
+                if ($catInput) {
+                    $catNames = explode(',', $catInput);
+                    foreach ($catNames as $catName) {
+                        $catName = trim($catName);
+                        if (!$catName) continue;
+                        
+                        if (is_numeric($catName)) {
+                            $categoryIds[] = (int)$catName;
+                        } else {
+                            // Find by name or path
+                            if (str_contains($catName, ' > ')) {
+                                $parts = explode(' > ', $catName);
+                                $childName = array_pop($parts);
+                                $parentName = array_pop($parts);
+                                $category = Category::where('name', $childName)
+                                    ->whereHas('parent', function($q) use ($parentName) {
+                                        $q->where('name', $parentName);
+                                    })->first();
+                            } else {
+                                $category = Category::where('name', $catName)->first();
+                            }
+
+                            if ($category) {
+                                $categoryIds[] = $category->id;
+                            }
+                        }
+                    }
+                }
+                $categoryIds = array_unique($categoryIds);
+                $primaryCategoryId = !empty($categoryIds) ? $categoryIds[0] : null;
+
+                // Identify Brand
+                $brandId = null;
+                $brandInput = trim($data['brand_name_or_id'] ?? '');
+                if ($brandInput) {
+                    if (is_numeric($brandInput)) {
+                        $brandId = (int)$brandInput;
+                    } else {
+                        $normBrand = $normalize($brandInput);
+                        $brand = Brand::all()->first(fn($b) => $normalize($b->name) === $normBrand);
+                        $brandId = $brand ? $brand->id : null;
+                    }
+                }
+
+                // Process Filters (columns starting with "Filter: ")
+                $filterValues = [];
+                foreach ($data as $key => $value) {
+                    $keyString = (string)$key;
+                    if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
+                        $rawName = str_replace('Filter: ', '', $keyString);
+                        $normName = $normalize($rawName);
+                        // Use the official name from DB if matched
+                        $officialName = $filterMap[$normName] ?? $rawName;
+                        // Always store as array for consistency
+                        $filterValues[$officialName] = [trim($value)];
+                    }
+                }
+
+                $productData = [
+                    'sku' => $sku,
+                    'name' => trim($data['name'] ?? ''),
+                    'slug' => trim($data['slug'] ?? Str::slug($data['name'] ?? '')),
+                    'description' => $data['description'] ?? null,
+                    'short_description' => $data['short_description'] ?? null,
+                    'price' => (float)($data['price'] ?? 0),
+                    'original_price' => isset($data['original_price']) ? (float)$data['original_price'] : null,
+                    'cost_price' => isset($data['cost_price']) ? (float)$data['cost_price'] : null,
+                    'stock_quantity' => (int)($data['stock_quantity'] ?? 0),
+                    'category_id' => $primaryCategoryId,
+                    'brand_id' => $brandId,
+                    'is_active' => filter_var($data['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                    'is_featured' => filter_var($data['is_featured'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'filter_values' => $filterValues, 
+                    'stock_status' => !empty($data['stock_status']) ? $data['stock_status'] : ((int)($data['stock_quantity'] ?? 0) > 0 ? 'in_stock' : 'out_of_stock'),
+                    'in_stock' => (int)($data['stock_quantity'] ?? 0) > 0,
+                ];
+
+                // Update or Create Product
+                $product = Product::updateOrCreate(['sku' => $sku], $productData);
+
+                // Aggregation Logic
+                $currentProduct = $product;
+                
+                if ($product->wasRecentlyCreated) {
+                    $createdCount++;
+                } else {
+                    $updatedCount++;
+                }
+
+                if (!empty($categoryIds)) {
+                    $product->categories()->sync($categoryIds);
+                }
+
+                // Handle Images for the product
+                $this->processProductImages($product, $data, $fileMap);
+                
+                // Handle initial variant if provided in the same row
+                if (!empty($data['variant_sku']) || !empty($filterValues)) {
+                    $this->processVariantRow($product, $data);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'تم استيراد المنتجات بنجاح',
+                'summary' => [
+                    'rows_processed' => $rowCount,
+                    'created' => $createdCount,
+                    'updated' => $updatedCount,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Bulk import error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'فشل الاستيراد: ' . $e->getMessage(),
+                'line' => $e->getLine()
+            ], 500);
+        }
+    }
+
+    private function extractFiltersFromRow(array $data, callable $normalize, array $filterMap)
+    {
+        $filters = [];
+        foreach ($data as $key => $value) {
+            $keyString = (string)$key;
+            if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
+                $rawName = str_replace('Filter: ', '', $keyString);
+                $normName = $normalize($rawName);
+                $officialName = $filterMap[$normName] ?? $rawName;
+                $filters[$officialName] = trim($value);
+            }
+        }
+        return $filters;
+    }
+
+    private function processVariantRow(Product $product, array $data)
+    {
+        $variantValues = [];
+        foreach ($data as $key => $value) {
+            $keyString = (string)$key;
+            if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
+                $filterName = str_replace('Filter: ', '', $keyString);
+                $variantValues[$filterName] = trim($value);
+            }
+        }
+
+        if (empty($variantValues) && empty($data['variant_sku'])) return;
+
+        $product->variants()->updateOrCreate(
+            ['sku' => $data['variant_sku'] ?? ($product->sku . '-' . Str::random(5))],
+            [
+                'variant_values' => $variantValues,
+                'price' => isset($data['variant_price']) ? (float)$data['variant_price'] : $product->price,
+                'stock_quantity' => isset($data['variant_stock']) ? (int)$data['variant_stock'] : 0,
+            ]
+        );
+    }
+
+    private function processProductImages(Product $product, array $data, array $fileMap)
+    {
+        $allImages = [];
+        
+        // 1. URLs
+        $urls = explode(',', $data['image_urls'] ?? '');
+        foreach ($urls as $url) {
+            $url = trim($url);
+            if (filter_var($url, FILTER_VALIDATE_URL)) {
+                $allImages[] = [
+                    'image_path' => $url,
+                    'image_url' => $url,
+                    'is_primary' => count($allImages) === 0,
+                    'sort_order' => count($allImages)
+                ];
+            }
+        }
+
+        // 2. Filenames (from manual upload)
+        $filenames = explode(',', $data['image_filenames'] ?? '');
+        foreach ($filenames as $index => $fname) {
+            $fname = trim($fname);
+            if (isset($fileMap[$fname])) {
+                $uFile = $fileMap[$fname];
+                $newFilename = time() . '_' . Str::random(10) . '_' . $fname;
+                $path = $uFile->storeAs('products', $newFilename, 'public');
+                
+                $allImages[] = [
+                    'image_path' => $path,
+                    'image_url' => asset('storage/' . $path),
+                    'is_primary' => count($allImages) === 0,
+                    'sort_order' => count($allImages)
+                ];
+            }
+        }
+
+        if (!empty($allImages)) {
+            $product->images = $allImages;
+            // Set first image as cover_image
+            if (isset($allImages[0]['image_url'])) {
+                $product->cover_image = $allImages[0]['image_url'];
+            }
+            $product->save();
+        }
+    }
+}

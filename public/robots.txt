@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /checkout
+Disallow: /cart
+Disallow: /order-success
+Disallow: /login
+Disallow: /register
+
+# Sitemap
+Sitemap: https://abozaina.ps/sitemap.xml
+Sitemap: https://abozaina.ps/abozaina/public/sitemap.xml
