@@ -115,4 +115,31 @@ class AuthController extends Controller
             'user' => $request->user()
         ]);
     }
+
+    /**
+     * Update user profile
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'phone' => 'nullable|string|max:20',
+            'city' => 'nullable|string|max:100',
+            'district' => 'nullable|string|max:100',
+            'street' => 'nullable|string|max:255',
+            'building' => 'nullable|string|max:100',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => $user
+        ]);
+    }
 }

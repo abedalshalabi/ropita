@@ -35,8 +35,11 @@ import AdminContactMessages from "./pages/AdminContactMessages";
 import AdminCities from "./pages/AdminCities";
 import AdminSlider from "./pages/AdminSlider";
 import AdminFilters from "./pages/AdminFilters";
+import AdminCustomers from "./pages/AdminCustomers";
+import AdminCustomerView from "./pages/AdminCustomerView";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Shipping from "./pages/Shipping";
@@ -158,6 +161,10 @@ function App() {
                 element={<Register />}
               />
               <Route
+                path="/dashboard"
+                element={<Dashboard />}
+              />
+              <Route
                 path="/about"
                 element={<About />}
               />
@@ -212,6 +219,8 @@ function App() {
               <Route path="/admin/cities" element={<AdminCities />} />
               <Route path="/admin/slider" element={<AdminSlider />} />
               <Route path="/admin/filters" element={<AdminFilters />} />
+              <Route path="/admin/customers" element={<AdminCustomers />} />
+              <Route path="/admin/customers/:id" element={<AdminCustomerView />} />
 
               {/* Catch-all route */}
               <Route path="*" element={<NotFound />} />

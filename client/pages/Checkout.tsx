@@ -4,6 +4,7 @@ import { MapPin, Phone, User, CreditCard, Truck } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { ordersAPI, citiesAPI } from "../services/api";
 import Header from "../components/Header";
+import { useAuth } from "../context/AuthContext";
 
 interface City {
   id: number;
@@ -16,6 +17,7 @@ interface City {
 
 const Checkout = () => {
   const { state, clearCart } = useCart();
+  const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -35,6 +37,27 @@ const Checkout = () => {
   const [cities, setCities] = useState<City[]>([]);
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [loadingCities, setLoadingCities] = useState(true);
+
+  // Pre-fill user data if logged in
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const nameParts = (user.name || "").split(' ');
+      const fName = nameParts[0] || "";
+      const lName = nameParts.slice(1).join(' ') || "";
+
+      setFormData(prev => ({
+        ...prev,
+        firstName: prev.firstName || fName,
+        lastName: prev.lastName || lName,
+        phone: prev.phone || user.phone || "",
+        email: prev.email || user.email || "",
+        city: prev.city || user.city || "",
+        district: prev.district || user.district || "",
+        street: prev.street || user.street || "",
+        building: prev.building || user.building || ""
+      }));
+    }
+  }, [isAuthenticated, user, cities]);
 
   useEffect(() => {
     const fetchCities = async () => {

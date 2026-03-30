@@ -210,84 +210,9 @@ class ProductController extends Controller
         $perPage = $request->get('per_page', 15);
         $products = $query->paginate($perPage);
 
-        // Dynamic Stock Management: Recalculate "In Stock" status AND price based on variants
+        // Recalculate "In Stock" status AND price based on variants
         foreach ($products as $product) {
-            $hasVariants = $product->variants && $product->variants->count() > 0;
-            $product->has_variants = $hasVariants;
-            
-            // Critical check: If the manual status is "out_of_stock", it should OVERRIDE everything
-            $manualOutStock = ($product->stock_status === 'out_of_stock');
-            
-            if ($hasVariants) {
-                $variantsToConsider = $product->variants;
-                
-                // If filters are active, only consider variants that match selected filters
-                if (!empty($allFilters)) {
-                    $variantsToConsider = $product->variants->filter(function($variant) use ($allFilters) {
-                        foreach ($allFilters as $filterKey => $filterValue) {
-                            $values = is_array($filterValue) ? $filterValue : explode(',', $filterValue);
-                            $values = array_map('trim', array_filter($values));
-                            if (empty($values)) continue;
-
-                            $match = false;
-                            $variantJson = json_encode($variant->variant_values, JSON_UNESCAPED_UNICODE);
-                            
-                            foreach ($values as $val) {
-                                $normalizedVal = preg_replace('/[أإآ]/u', 'ا', $val);
-                                if (mb_strpos($variantJson, '"' . $val . '"') !== false || 
-                                    mb_strpos($variantJson, '"' . $normalizedVal . '"') !== false) {
-                                    $match = true;
-                                    break;
-                                }
-                            }
-                            if (!$match) return false;
-                        }
-                        return true;
-                    });
-                }
-
-                // Update product effective stock status and quantities
-                if ($variantsToConsider->count() > 0) {
-                    $totalStock = $variantsToConsider->sum('stock_quantity');
-                    $product->stock_quantity = $totalStock;
-                    
-                    // Manual status overrides
-                    if ($manualOutStock) {
-                        $product->in_stock = false;
-                        $product->stock_status = 'out_of_stock';
-                    } elseif ($product->stock_status === 'in_stock') {
-                        $product->in_stock = true;
-                        $product->stock_status = 'in_stock';
-                    } else {
-                        // stock_based logic: in_stock if totalStock > 0
-                        $product->in_stock = $totalStock > 0;
-                        $product->stock_status = $totalStock > 0 ? 'in_stock' : 'out_of_stock';
-                    }
-                    
-                    // Update price to use variant price (Lowest price of considered variants)
-                    $minPrice = $variantsToConsider->min('price');
-                    $maxPrice = $variantsToConsider->max('price');
-                    if ($minPrice > 0) {
-                        $product->price = (float)$minPrice;
-                        if ($minPrice != $maxPrice) {
-                            $product->has_price_range = true;
-                            $product->max_price = (float)$maxPrice;
-                        }
-                    }
-                } else if (!empty($allFilters)) {
-                    // If no variants match at all for these filters, it's effectively out of stock
-                    $product->in_stock = false;
-                    $product->stock_status = 'out_of_stock';
-                    $product->stock_quantity = 0;
-                }
-            } else {
-                // If no variants, just ensure manual status overrides are respected
-                if ($manualOutStock) {
-                    $product->in_stock = false;
-                } elseif ($product->stock_status === 'in_stock') {
-                    $product->in_stock = true;
-                }
-            }
+            $this->prepareProductForFrontend($product, $allFilters);
         }
 
         return response()->json([
@@ -935,12 +860,16 @@ class ProductController extends Controller
      */
     public function featured(): JsonResponse
     {
-        $products = Product::with(['category', 'brand', 'images'])
+        $products = Product::with(['category', 'brand', 'images', 'variants'])
             ->where('is_featured', true)
             ->where('is_active', true)
             ->orderBy('created_at', 'desc')
             ->limit(12)
             ->get();
+
+        foreach ($products as $product) {
+            $this->prepareProductForFrontend($product);
+        }
 
         return response()->json([
             'data' => ProductResource::collection($products)
@@ -952,11 +881,15 @@ class ProductController extends Controller
      */
     public function latest(): JsonResponse
     {
-        $products = Product::with(['category', 'brand', 'images'])
+        $products = Product::with(['category', 'brand', 'images', 'variants'])
             ->where('is_active', true)
             ->orderBy('created_at', 'desc')
             ->limit(12)
             ->get();
+
+        foreach ($products as $product) {
+            $this->prepareProductForFrontend($product);
+        }
 
         return response()->json([
             'data' => ProductResource::collection($products)
@@ -1506,6 +1439,89 @@ class ProductController extends Controller
                 $product->cover_image = $allImages[0]['image_url'];
             }
             $product->save();
+        }
+    }
+
+    /**
+     * Prepare product with frontend-specific requirements (variants, stock, price range)
+     */
+    private function prepareProductForFrontend($product, $allFilters = [])
+    {
+        $hasVariants = $product->variants && $product->variants->count() > 0;
+        $product->has_variants = $hasVariants;
+        
+        // Critical check: If the manual status is "out_of_stock", it should OVERRIDE everything
+        $manualOutStock = ($product->stock_status === 'out_of_stock');
+        
+        if ($hasVariants) {
+            $variantsToConsider = $product->variants;
+            
+            // If filters are active, only consider variants that match selected filters
+            if (!empty($allFilters)) {
+                $variantsToConsider = $product->variants->filter(function($variant) use ($allFilters) {
+                    foreach ($allFilters as $filterKey => $filterValue) {
+                        $values = is_array($filterValue) ? $filterValue : explode(',', $filterValue);
+                        $values = array_map('trim', array_filter($values));
+                        if (empty($values)) continue;
+
+                        $match = false;
+                        $variantJson = json_encode($variant->variant_values, JSON_UNESCAPED_UNICODE);
+                        
+                        foreach ($values as $val) {
+                            $normalizedVal = preg_replace('/[أإآ]/u', 'ا', $val);
+                            if (mb_strpos($variantJson, '"' . $val . '"') !== false || 
+                                mb_strpos($variantJson, '"' . $normalizedVal . '"') !== false) {
+                                $match = true;
+                                break;
+                            }
+                        }
+                        if (!$match) return false;
+                    }
+                    return true;
+                });
+            }
+
+            // Update product effective stock status and quantities
+            if ($variantsToConsider->count() > 0) {
+                $totalStock = $variantsToConsider->sum('stock_quantity');
+                $product->stock_quantity = $totalStock;
+                
+                // Manual status overrides
+                if ($manualOutStock) {
+                    $product->in_stock = false;
+                    $product->stock_status = 'out_of_stock';
+                } elseif ($product->stock_status === 'in_stock') {
+                    $product->in_stock = true;
+                    $product->stock_status = 'in_stock';
+                } else {
+                    // stock_based logic: in_stock if totalStock > 0
+                    $product->in_stock = $totalStock > 0;
+                    $product->stock_status = $totalStock > 0 ? 'in_stock' : 'out_of_stock';
+                }
+                
+                // Update price to use variant price (Lowest price of considered variants)
+                $minPrice = $variantsToConsider->min('price');
+                $maxPrice = $variantsToConsider->max('price');
+                if ($minPrice > 0) {
+                    $product->price = (float)$minPrice;
+                    if ($minPrice != $maxPrice) {
+                        $product->has_price_range = true;
+                        $product->max_price = (float)$maxPrice;
+                    }
+                }
+            } else if (!empty($allFilters)) {
+                // If no variants match at all for these filters, it's effectively out of stock
+                $product->in_stock = false;
+                $product->stock_status = 'out_of_stock';
+                $product->stock_quantity = 0;
+            }
+        } else {
+            // If no variants, just ensure manual status overrides are respected
+            if ($manualOutStock) {
+                $product->in_stock = false;
+            } elseif ($product->stock_status === 'in_stock') {
+                $product->in_stock = true;
+            }
         }
     }
 }

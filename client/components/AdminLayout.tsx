@@ -19,7 +19,8 @@ import {
   MapPin,
   ExternalLink,
   Image,
-  Filter
+  Filter,
+  Shield
 } from 'lucide-react';
 import { adminContactMessagesAPI, adminOrdersAPI } from '../services/adminApi';
 import SEO from './SEO';
@@ -125,9 +126,14 @@ function AdminLayout({ children }: AdminLayoutProps) {
       path: '/admin/slider',
     },
     {
-      title: 'المستخدمين',
-      icon: Users,
+      title: 'المسؤولين',
+      icon: Shield,
       path: '/admin/users',
+    },
+    {
+      title: 'الزبائن',
+      icon: Users,
+      path: '/admin/customers',
     },
     {
       title: 'المراجعات',

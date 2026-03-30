@@ -1,5 +1,7 @@
-import { createContext, useContext, useReducer, ReactNode, useEffect } from "react";
+import { createContext, useContext, useReducer, ReactNode, useEffect, useCallback, useRef } from "react";
 import { cartAPI } from "../services/api";
+import { STORAGE_BASE_URL } from "../config/env";
+import { useAuth } from "./AuthContext";
 
 interface CartItem {
   id: number;
@@ -13,76 +15,82 @@ interface CartItem {
   brand: string;
   type?: 'product' | 'offer';
   selected_options?: Record<string, string>;
+  db_cart_id?: number; // Backend DB record ID
 }
 
 interface CartState {
   items: CartItem[];
   total: number;
   itemCount: number;
+  isLoading: boolean;
 }
 
 type CartAction =
-  | { type: "ADD_ITEM"; payload: Omit<CartItem, "quantity"> }
-  | { type: "REMOVE_ITEM"; payload: { id: number; variant_id?: number } }
+  | { type: "SET_ITEMS"; payload: CartItem[] }
+  | { type: "SET_LOADING"; payload: boolean }
+  | { type: "ADD_ITEM"; payload: CartItem }
   | { type: "UPDATE_QUANTITY"; payload: { id: number; variant_id?: number; quantity: number } }
+  | { type: "REMOVE_ITEM"; payload: { id: number; variant_id?: number } }
   | { type: "CLEAR_CART" };
 
 const initialState: CartState = {
   items: [],
   total: 0,
   itemCount: 0,
+  isLoading: false,
+};
+
+const calculateTotals = (items: CartItem[]) => {
+  const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  return { total, itemCount };
 };
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
+    case "SET_ITEMS": {
+      const { total, itemCount } = calculateTotals(action.payload);
+      return { ...state, items: action.payload, total, itemCount };
+    }
     case "ADD_ITEM": {
-      const existingItem = state.items.find(item => 
-        item.id === action.payload.id && item.variant_id === action.payload.variant_id
+      // Check if item already exists
+      const existingItemIndex = state.items.findIndex(
+        (i) => i.id === action.payload.id && i.variant_id === action.payload.variant_id
       );
 
-      let newItems: CartItem[];
-      if (existingItem) {
-        newItems = state.items.map(item =>
-          item.id === action.payload.id && item.variant_id === action.payload.variant_id
-            ? { ...item, quantity: item.quantity + 1 }
+      let newItems;
+      if (existingItemIndex > -1) {
+        newItems = state.items.map((item, index) =>
+          index === existingItemIndex
+            ? { ...item, quantity: item.quantity + action.payload.quantity }
             : item
         );
       } else {
-        newItems = [...state.items, { ...action.payload, quantity: 1 }];
+        newItems = [...state.items, action.payload];
       }
-
-      const total = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0);
-
-      return { items: newItems, total, itemCount };
+      const { total, itemCount } = calculateTotals(newItems);
+      return { ...state, items: newItems, total, itemCount };
     }
-
-    case "REMOVE_ITEM": {
-      const newItems = state.items.filter(item => 
-        !(item.id === action.payload.id && item.variant_id === action.payload.variant_id)
-      );
-      const total = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0);
-
-      return { items: newItems, total, itemCount };
-    }
-
     case "UPDATE_QUANTITY": {
-      const newItems = state.items.map(item =>
+      const newItems = state.items.map((item) =>
         item.id === action.payload.id && item.variant_id === action.payload.variant_id
-          ? { ...item, quantity: Math.max(0, action.payload.quantity) }
+          ? { ...item, quantity: action.payload.quantity }
           : item
-      ).filter(item => item.quantity > 0);
-
-      const total = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0);
-
-      return { items: newItems, total, itemCount };
+      );
+      const { total, itemCount } = calculateTotals(newItems);
+      return { ...state, items: newItems, total, itemCount };
     }
-
+    case "REMOVE_ITEM": {
+      const newItems = state.items.filter(
+        (item) => !(item.id === action.payload.id && item.variant_id === action.payload.variant_id)
+      );
+      const { total, itemCount } = calculateTotals(newItems);
+      return { ...state, items: newItems, total, itemCount };
+    }
+    case "SET_LOADING":
+      return { ...state, isLoading: action.payload };
     case "CLEAR_CART":
-      return initialState;
-
+      return { ...initialState };
     default:
       return state;
   }
@@ -90,35 +98,189 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 
 interface CartContextType {
   state: CartState;
-  addItem: (item: Omit<CartItem, "quantity">) => void;
-  removeItem: (id: number, variant_id?: number) => void;
-  updateQuantity: (id: number, quantity: number, variant_id?: number) => void;
-  clearCart: () => void;
+  addItem: (item: Omit<CartItem, "quantity">) => Promise<void>;
+  removeItem: (id: number, variant_id?: number) => Promise<void>;
+  updateQuantity: (id: number, quantity: number, variant_id?: number) => Promise<void>;
+  clearCart: () => Promise<void>;
+  refreshCart: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(cartReducer, initialState);
+  const { token, isAuthenticated } = useAuth();
+  const isInitialMount = useRef(true);
 
-  const addItem = (item: Omit<CartItem, "quantity">) => {
-    dispatch({ type: "ADD_ITEM", payload: item });
+  const loadCartFromBackend = useCallback(async () => {
+    if (!token) return;
+    dispatch({ type: "SET_LOADING", payload: true });
+    try {
+      const response = await cartAPI.getCart(token);
+      if (response && response.data) {
+        const mappedItems: CartItem[] = response.data.map((item: any) => ({
+          id: item.product.id,
+          variant_id: item.product_variant_id,
+          db_cart_id: item.id,
+          name: item.product.name,
+          price: Number(item.price),
+          image: (() => {
+            const imgPath = item.product.images?.find((img: any) => img.is_primary)?.image_path || item.product.images?.[0]?.image_path || '';
+            if (!imgPath) return '';
+            if (imgPath.startsWith('http')) return imgPath;
+            return `${STORAGE_BASE_URL}/${imgPath.replace(/^\/?(storage\/)?/, '')}`;
+          })(),
+          quantity: item.quantity,
+          brand: item.product.brand?.name || 'ماركة غير محددة',
+          selected_options: item.variant_values
+        }));
+        dispatch({ type: "SET_ITEMS", payload: mappedItems });
+      }
+    } catch (error) {
+      console.error("Failed to load cart from backend:", error);
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  }, [token]);
+
+  const loadCartFromLocal = useCallback(() => {
+    const localCart = localStorage.getItem('guest_cart');
+    if (localCart) {
+      try {
+        const items = JSON.parse(localCart);
+        dispatch({ type: "SET_ITEMS", payload: items });
+      } catch (e) {
+        console.error("Corrupted local cart");
+      }
+    }
+  }, []);
+
+  // Save to local storage when items change (only if NOT authenticated)
+  useEffect(() => {
+    if (!isAuthenticated && !isInitialMount.current) {
+      localStorage.setItem('guest_cart', JSON.stringify(state.items));
+    }
+  }, [state.items, isAuthenticated]);
+
+  // Initial load
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      loadCartFromBackend();
+    } else {
+      loadCartFromLocal();
+    }
+    isInitialMount.current = false;
+  }, [isAuthenticated, token, loadCartFromBackend, loadCartFromLocal]);
+
+  // Sync guest cart to DB upon login
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      const guestCart = localStorage.getItem('guest_cart');
+      if (guestCart) {
+        try {
+          const items = JSON.parse(guestCart);
+          if (items.length > 0) {
+            const sync = async () => {
+              for (const item of items) {
+                try {
+                   await cartAPI.addToCart(item.id, item.quantity, item.variant_id, token);
+                } catch (e) {
+                   console.error("Failed to sync item", item.id);
+                }
+              }
+              localStorage.removeItem('guest_cart');
+              loadCartFromBackend();
+            };
+            sync();
+          }
+        } catch (e) {
+          console.error("Sync error");
+        }
+      }
+    }
+  }, [isAuthenticated, token, loadCartFromBackend]);
+
+  const addItem = async (item: Omit<CartItem, "quantity">) => {
+    if (isAuthenticated && token) {
+      try {
+        await cartAPI.addToCart(item.id, 1, item.variant_id, token);
+        loadCartFromBackend();
+      } catch (error) {
+        console.error("Failed to add to cart on backend:", error);
+      }
+    } else {
+      dispatch({ type: "ADD_ITEM", payload: { ...item, quantity: 1 } });
+    }
   };
 
-  const removeItem = (id: number, variant_id?: number) => {
-    dispatch({ type: "REMOVE_ITEM", payload: { id, variant_id } });
+  const removeItem = async (id: number, variant_id?: number) => {
+    if (isAuthenticated && token) {
+      // Find db_cart_id
+      const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
+      if (item?.db_cart_id) {
+        try {
+          await cartAPI.removeFromCart(item.db_cart_id, token);
+          loadCartFromBackend();
+        } catch (error) {
+          console.error("Failed to remove from cart on backend:", error);
+        }
+      }
+    } else {
+      dispatch({ type: "REMOVE_ITEM", payload: { id, variant_id } });
+    }
   };
 
-  const updateQuantity = (id: number, quantity: number, variant_id?: number) => {
-    dispatch({ type: "UPDATE_QUANTITY", payload: { id, variant_id, quantity } });
+  const updateQuantity = async (id: number, quantity: number, variant_id?: number) => {
+    if (quantity < 1) return;
+    
+    if (isAuthenticated && token) {
+      const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
+      if (item?.db_cart_id) {
+        try {
+          await cartAPI.updateCartItem(item.db_cart_id, quantity, token);
+          loadCartFromBackend();
+        } catch (error) {
+          console.error("Failed to update cart on backend:", error);
+        }
+      }
+    } else {
+      dispatch({ type: "UPDATE_QUANTITY", payload: { id, variant_id, quantity } });
+    }
   };
 
-  const clearCart = () => {
-    dispatch({ type: "CLEAR_CART" });
+  const clearCart = async () => {
+    if (isAuthenticated && token) {
+      try {
+        await cartAPI.clearCart(token);
+        loadCartFromBackend();
+      } catch (error) {
+        console.error("Failed to clear cart on backend:", error);
+      }
+    } else {
+      dispatch({ type: "CLEAR_CART" });
+      localStorage.removeItem('guest_cart');
+    }
+  };
+
+  const refreshCart = async () => {
+    if (isAuthenticated && token) {
+      await loadCartFromBackend();
+    } else {
+      loadCartFromLocal();
+    }
   };
 
   return (
-    <CartContext.Provider value={{ state, addItem, removeItem, updateQuantity, clearCart }}>
+    <CartContext.Provider
+      value={{
+        state,
+        addItem,
+        removeItem,
+        updateQuantity,
+        clearCart,
+        refreshCart,
+      }}
+    >
       {children}
     </CartContext.Provider>
   );
@@ -126,7 +288,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
 export const useCart = () => {
   const context = useContext(CartContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error("useCart must be used within a CartProvider");
   }
   return context;

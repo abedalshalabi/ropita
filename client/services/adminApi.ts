@@ -123,6 +123,19 @@ export const adminUsersAPI = {
   }
 };
 
+// Admin Customers API
+export const adminCustomersAPI = {
+  async getCustomers(params: any = {}) {
+    const response = await adminApi.get('/v1/admin/customers', { params });
+    return response.data;
+  },
+  
+  async getCustomer(id: string) {
+    const response = await adminApi.get(`/v1/admin/customers/${id}`);
+    return response.data;
+  }
+};
+
 // Admin Products API
 export const adminProductsAPI = {
   async getProducts(filters: any = {}) {

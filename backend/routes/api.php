@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\AdminCityController;
 use App\Http\Controllers\Api\AdminSliderController;
 use App\Http\Controllers\Api\FilterController;
+use App\Http\Controllers\Api\AdminCustomerController;
 
 /*
 |--------------------------------------------------------------------------
@@ -115,6 +116,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/user', function (Request $request) {
             return $request->user();
         });
+        Route::put('/user/profile', [AuthController::class, 'updateProfile']);
         
         // User orders
         Route::get('/user/orders', [OrderController::class, 'userOrders']);
@@ -143,7 +145,7 @@ Route::prefix('v1')->group(function () {
               Route::get('/admin/dashboard', [AdminDashboardController::class, 'dashboard']);
               Route::get('/admin/analytics', [AdminDashboardController::class, 'analytics']);
 
-              // Admin Users Management
+              // Admin Users Management (Admins)
               Route::get('/admin/users', [AdminUserController::class, 'index']);
               Route::post('/admin/users', [AdminUserController::class, 'store']);
               Route::get('/admin/users/{admin}', [AdminUserController::class, 'show']);
@@ -151,6 +153,10 @@ Route::prefix('v1')->group(function () {
               Route::delete('/admin/users/{admin}', [AdminUserController::class, 'destroy']);
               Route::get('/admin/roles', [AdminUserController::class, 'roles']);
               Route::get('/admin/permissions', [AdminUserController::class, 'permissions']);
+
+              // Customer Management (Users)
+              Route::get('/admin/customers', [AdminCustomerController::class, 'index']);
+              Route::get('/admin/customers/{user}', [AdminCustomerController::class, 'show']);
 
               // Product management
               Route::get('/admin/products/import-template', [ProductController::class, 'exportImportTemplate']);

@@ -9,6 +9,7 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class CartController extends Controller
 {
@@ -19,8 +20,9 @@ class CartController extends Controller
     {
         $query = Cart::with(['product.category', 'product.brand', 'product.images']);
 
-        if (Auth::check()) {
-            $query->where('user_id', Auth::id());
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            $query->where('user_id', $user->id);
         } else {
             $query->where('session_id', $request->session()->getId());
         }
@@ -44,6 +46,12 @@ class CartController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        Log::info('Cart addition attempt', [
+            'payload' => $request->all(),
+            'user' => Auth::guard('sanctum')->user()?->id,
+            'token' => $request->bearerToken() ? 'Present' : 'Missing'
+        ]);
+
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
             'product_variant_id' => 'nullable|exists:product_variants,id',
@@ -68,7 +76,6 @@ class CartController extends Controller
         }
 
         // Check stock availability based on stock_status
-        // Server-side verification to prevent "Inspect Element" modification bypass
         $isAvailable = false;
         if ($product->stock_status === 'out_of_stock') {
             $isAvailable = false;
@@ -76,10 +83,8 @@ class CartController extends Controller
             $isAvailable = true;
         } elseif ($product->stock_status === 'stock_based') {
             if ($variant) {
-                // Verification: variant must have enough stock
                 $isAvailable = $variant->stock_quantity >= $validated['quantity'];
             } else {
-                // Verification: main product must have enough stock
                 $isAvailable = $product->stock_quantity >= $validated['quantity'];
             }
         }
@@ -94,8 +99,9 @@ class CartController extends Controller
         $query = Cart::where('product_id', $validated['product_id'])
             ->where('product_variant_id', $validated['product_variant_id'] ?? null);
 
-        if (Auth::check()) {
-            $query->where('user_id', Auth::id());
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            $query->where('user_id', $user->id);
         } else {
             $query->where('session_id', $request->session()->getId());
         }
@@ -106,7 +112,6 @@ class CartController extends Controller
         if ($existingItem) {
             $newQuantity = $existingItem->quantity + $validated['quantity'];
             
-            // Re-verify stock for cumulative quantity
             if ($product->stock_status === 'stock_based') {
                 $stockQty = $variant ? $variant->stock_quantity : $product->stock_quantity;
                 if ($newQuantity > $stockQty) {
@@ -123,8 +128,8 @@ class CartController extends Controller
             $cartItem = $existingItem;
         } else {
             $cartItem = Cart::create([
-                'user_id' => Auth::id(),
-                'session_id' => Auth::check() ? null : $request->session()->getId(),
+                'user_id' => $user ? $user->id : null,
+                'session_id' => $user ? null : $request->session()->getId(),
                 'product_id' => $validated['product_id'],
                 'product_variant_id' => $validated['product_variant_id'] ?? null,
                 'variant_values' => $validated['variant_values'] ?? null,
@@ -148,45 +153,29 @@ class CartController extends Controller
             'quantity' => 'required|integer|min:1',
         ]);
 
-        // Check if user can update this cart item
-        if (Auth::check() && $cart->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        if (!Auth::check() && $cart->session_id !== $request->session()->getId()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            if ($cart->user_id !== $user->id) abort(403);
+        } else {
+            if ($cart->session_id !== $request->session()->getId()) abort(403);
         }
 
         $product = $cart->product;
-        $variant = $cart->product_variant_id ? \App\Models\ProductVariant::find($cart->product_variant_id) : null;
+        $variant = $cart->variant;
 
-        // Check stock availability based on stock_status
-        $isAvailable = false;
-        if ($product->stock_status === 'out_of_stock') {
-            $isAvailable = false;
-        } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
-            $isAvailable = true;
-        } elseif ($product->stock_status === 'stock_based') {
-            if ($variant) {
-                $isAvailable = $variant->stock_quantity >= $validated['quantity'];
-            } else {
-                $isAvailable = $product->stock_quantity >= $validated['quantity'];
+        if ($product->stock_status === 'stock_based') {
+            $stockQty = $variant ? $variant->stock_quantity : $product->stock_quantity;
+            if ($validated['quantity'] > $stockQty) {
+                return response()->json([
+                    'message' => 'الكمية تتجاوز المخزون المتوفر'
+                ], 400);
             }
         }
 
-        if (!$isAvailable) {
-            return response()->json([
-                'message' => 'الكمية المطلوبة غير متوفرة حالياً'
-            ], 400);
-        }
-
-        $cart->update([
-            'quantity' => $validated['quantity'],
-            'price' => $variant ? $variant->price : $product->price,
-        ]);
+        $cart->update(['quantity' => $validated['quantity']]);
 
         return response()->json([
-            'message' => 'تم تحديث السلة بنجاح',
+            'message' => 'تم تحديث الكمية بنجاح',
             'data' => new CartResource($cart->load(['product.category', 'product.brand', 'product.images']))
         ]);
     }
@@ -194,67 +183,57 @@ class CartController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Cart $cart, Request $request): JsonResponse
+    public function destroy(Request $request, Cart $cart): JsonResponse
     {
-        // Check if user can delete this cart item
-        if (Auth::check() && $cart->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        if (!Auth::check() && $cart->session_id !== $request->session()->getId()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            if ($cart->user_id !== $user->id) abort(403);
+        } else {
+            if ($cart->session_id !== $request->session()->getId()) abort(403);
         }
 
         $cart->delete();
 
         return response()->json([
-            'message' => 'Cart item removed successfully'
+            'message' => 'تم حذف المنتج من السلة بنجاح'
         ]);
     }
 
     /**
-     * Clear all cart items
+     * Remove all items from cart.
      */
     public function clear(Request $request): JsonResponse
     {
-        $query = Cart::query();
-
-        if (Auth::check()) {
-            $query->where('user_id', Auth::id());
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            Cart::where('user_id', $user->id)->delete();
         } else {
-            $query->where('session_id', $request->session()->getId());
+            Cart::where('session_id', $request->session()->getId())->delete();
         }
 
-        $query->delete();
-
         return response()->json([
-            'message' => 'Cart cleared successfully'
+            'message' => 'تم إفراغ السلة بنجاح'
         ]);
     }
 
     /**
-     * Get cart summary
+     * Get cart summary.
      */
     public function summary(Request $request): JsonResponse
     {
-        $query = Cart::with('product');
-
-        if (Auth::check()) {
-            $query->where('user_id', Auth::id());
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            $count = Cart::where('user_id', $user->id)->count();
+            $total = Cart::get()->where('user_id', $user->id)->sum('total');
         } else {
-            $query->where('session_id', $request->session()->getId());
+            $count = Cart::where('session_id', $request->session()->getId())->count();
+            $total = Cart::get()->where('session_id', $request->session()->getId())->sum('total');
         }
-
-        $cartItems = $query->get();
-        $total = $cartItems->sum('total');
-        $shippingCost = $total > 500 ? 0 : 25;
 
         return response()->json([
             'data' => [
-                'total_items' => $cartItems->count(),
-                'total_amount' => $total,
-                'shipping_cost' => $shippingCost,
-                'final_total' => $total + $shippingCost,
+                'count' => $count,
+                'total' => $total,
             ]
         ]);
     }

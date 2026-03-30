@@ -35,6 +35,11 @@ class Cart extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
+    }
+
     public function getTotalAttribute()
     {
         return $this->quantity * $this->price;

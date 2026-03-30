@@ -2,12 +2,15 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import Header from "../components/Header";
-import { authAPI } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { getStorageUrl } from "../config/env";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { siteName } = useSiteSettings();
+  const { siteName, headerLogo } = useSiteSettings();
+  const logoUrl = getStorageUrl(headerLogo) || "/logo.webp";
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: "",
     password: ""
@@ -22,18 +25,13 @@ const Login = () => {
     setError("");
     
     try {
-      const response = await authAPI.login(formData.email, formData.password);
+      const success = await login(formData.email, formData.password);
       
-      if (response.token) {
-        // Store token in localStorage
-        localStorage.setItem('auth_token', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
-        
-        // Redirect to home page
-        navigate('/');
-        window.location.reload(); // Refresh to update auth state
+      if (success) {
+        // Redirect to dashboard
+        navigate('/dashboard');
       } else {
-        setError(response.message || 'حدث خطأ في تسجيل الدخول');
+        setError('بيانات الدخول غير صحيحة، يرجى المحاولة مرة أخرى');
       }
     } catch (error) {
       setError('حدث خطأ في الاتصال بالخادم');
@@ -62,8 +60,10 @@ const Login = () => {
         <div className="max-w-md mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <User className="w-10 h-10 text-emerald-600" />
+              <div className="mb-6">
+                <Link to="/" className="inline-block">
+                  <img src={logoUrl} alt={siteName} className="h-16 w-auto mx-auto" onError={(e) => { e.currentTarget.src = "/placeholder.svg"; }} />
+                </Link>
               </div>
               <h1 className="text-3xl font-bold text-gray-800 mb-2">تسجيل الدخول</h1>
               <p className="text-gray-600">{siteName ? `مرحباً بك مرة أخرى في ${siteName}` : "مرحباً بك مرة أخرى"}</p>
@@ -145,24 +145,6 @@ const Login = () => {
               </button>
             </form>
 
-            {/* Divider */}
-            <div className="my-6 flex items-center">
-              <div className="flex-1 border-t border-gray-300"></div>
-              <span className="px-4 text-sm text-gray-500">أو</span>
-              <div className="flex-1 border-t border-gray-300"></div>
-            </div>
-
-            {/* Social Login */}
-            <div className="space-y-3">
-              <button className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" className="w-5 h-5" />
-                تسجيل الدخول بـ Google
-              </button>
-              <button className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="w-5 h-5 bg-emerald-600 rounded text-white text-xs flex items-center justify-center font-bold">f</div>
-                تسجيل الدخول بـ Facebook
-              </button>
-            </div>
 
             {/* Sign Up Link */}
             <div className="mt-8 text-center">

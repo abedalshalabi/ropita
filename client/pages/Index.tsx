@@ -140,6 +140,7 @@ const Index = () => {
   const featuredOffers = featuredProducts.map((product) => {
     const firstImage = product.images?.[0] ?? {};
     const imageUrl =
+      product.cover_image ||
       firstImage.image_url ||
       firstImage.image_path ||
       firstImage.url ||
@@ -158,6 +159,11 @@ const Index = () => {
       discount: product.discount_percentage || 0,
       isNew: product.is_new || false,
       isBestSeller: Boolean(product.is_featured || product.is_best_seller),
+      hasVariants: product.has_variants || false,
+      hasPriceRange: product.has_price_range || false,
+      maxPrice: product.max_price,
+      stockStatus: product.stock_status || (product.in_stock ? "متوفر" : "غير متوفر"),
+      inStock: product.in_stock !== false && product.stock_status !== 'out_of_stock',
     };
   });
 
@@ -165,6 +171,7 @@ const Index = () => {
   const latestProductsData = latestProducts.map((product) => {
     const firstImage = product.images?.[0] ?? {};
     const imageUrl =
+      product.cover_image ||
       firstImage.image_url ||
       firstImage.image_path ||
       firstImage.url ||
@@ -183,6 +190,10 @@ const Index = () => {
       discount: product.discount_percentage || 0,
       isNew: product.is_new || true,
       stockStatus: product.stock_status || (product.in_stock ? "متوفر" : "غير متوفر"),
+      inStock: product.in_stock !== false && product.stock_status !== 'out_of_stock',
+      hasVariants: product.has_variants || false,
+      hasPriceRange: product.has_price_range || false,
+      maxPrice: product.max_price,
     };
   });
 
@@ -398,12 +409,12 @@ const Index = () => {
                     )}
 
                     <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 w-full flex items-center">
-                      <div className="max-w-2xl w-full pr-4 sm:pr-8 lg:pr-12">
+                      <div className="max-w-2xl w-full pr-4 sm:pr-8 lg:pr-12 relative z-10">
                         {item.title && (
                           <h2 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold mb-4 sm:mb-6 lg:mb-8 leading-tight tracking-tight text-gray-900 drop-shadow-md">
                             {item.title}
                             {item.subtitle && (
-                              <span className="block mt-3 sm:mt-4 lg:mt-6 text-xl sm:text-3xl lg:text-4xl text-emerald-600 font-bold drop-shadow-md">
+                              <span className="inline-block mt-3 sm:mt-4 lg:mt-6 text-xl sm:text-3xl lg:text-4xl text-emerald-800 font-bold drop-shadow-md bg-white/90 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-white/50">
                                 {item.subtitle}
                               </span>
                             )}
@@ -414,11 +425,11 @@ const Index = () => {
                             {item.description}
                           </p>
                         )}
-                        <div className="flex flex-row flex-wrap gap-3 sm:gap-4 lg:gap-5">
+                        <div className="flex flex-row flex-wrap gap-3 sm:gap-4 lg:gap-5 mt-8 sm:mt-10">
                           {item.button1_text && item.button1_link && (
                             <Link
                               to={item.button1_link}
-                              className={`${item.button1_color && item.button1_color !== '' ? item.button1_color : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 shadow-lg text-sm sm:text-base lg:text-lg border-2 border-transparent`}
+                              className={`${item.button1_color && item.button1_color !== '' ? item.button1_color : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 text-sm sm:text-base lg:text-lg border-2 border-transparent`}
                             >
                               {item.button1_text}
                               <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" />
@@ -427,7 +438,7 @@ const Index = () => {
                           {item.button2_text && item.button2_link && (
                             <Link
                               to={item.button2_link}
-                              className={`${item.button2_color && item.button2_color !== '' ? item.button2_color : 'bg-white text-gray-800 hover:bg-gray-50 border-gray-200 hover:border-gray-300'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-xl transition-all duration-300 text-center text-sm sm:text-base lg:text-lg border-2`}
+                              className={`${item.button2_color && item.button2_color !== '' ? item.button2_color : 'bg-white text-gray-900 hover:bg-gray-100 border-gray-300 shadow-xl'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-2xl transition-all duration-300 text-center text-sm sm:text-base lg:text-lg border-2`}
                             >
                               {item.button2_text}
                             </Link>
@@ -642,16 +653,27 @@ const Index = () => {
                       <span className="text-xs md:text-sm text-gray-600">({product.reviews})</span>
                     </div>
 
-                    <div className="flex items-center gap-2 mb-3 md:mb-4 flex-wrap">
-                      <span className="text-lg md:text-2xl font-bold text-emerald-600">{product.price} ₪</span>
-                      {product.originalPrice && product.originalPrice > 0 ? (
-                        <span className="text-xs md:text-sm text-gray-500 line-through">{product.originalPrice} ₪</span>
-                      ) : null}
+                    <div className="flex items-center justify-between mb-3 md:mb-4 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg md:text-2xl font-bold text-emerald-600">
+                          {product.hasPriceRange ? `ابتداءً من: ${product.price}` : product.price} ₪
+                        </span>
+                        {product.originalPrice && product.originalPrice > 0 ? (
+                          <span className="text-xs md:text-sm text-gray-500 line-through">{product.originalPrice} ₪</span>
+                        ) : null}
+                      </div>
+                      <span className={`text-[10px] md:text-xs px-2 py-1 rounded-full ${product.inStock === false ? 'text-red-500 bg-red-50' : 'text-gray-500 bg-gray-100'}`}>
+                        {product.stockStatus}
+                      </span>
                     </div>
 
                     <button
                       onClick={(e) => {
                         e.preventDefault();
+                        if (product.hasVariants) {
+                          window.location.href = `/product/${product.id}`;
+                          return;
+                        }
                         triggerAnimation(e.currentTarget, {
                           image: product.image,
                           name: product.name,
@@ -664,9 +686,10 @@ const Index = () => {
                           brand: "متنوع",
                         });
                       }}
-                      className="w-full bg-emerald-600 text-white py-2 md:py-3 rounded-lg md:rounded-xl hover:bg-emerald-700 transition-colors font-semibold text-sm md:text-base"
+                      className={`w-full text-white py-2 md:py-3 rounded-lg md:rounded-xl transition-colors font-semibold text-sm md:text-base ${product.inStock === false ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                      disabled={product.inStock === false}
                     >
-                      أضف للسلة
+                      {product.inStock === false ? 'نفذت الكمية' : 'أضف للسلة'}
                     </button>
                   </div>
                 </div>
@@ -754,8 +777,10 @@ const Index = () => {
                     </div>
 
                     <div className="flex items-center justify-between mb-4">
-                      <span className="text-2xl font-bold text-emerald-600">{product.price} ₪</span>
-                      <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      <span className="text-2xl font-bold text-emerald-600">
+                        {product.hasPriceRange ? `ابتداءً من: ${product.price}` : product.price} ₪
+                      </span>
+                      <span className={`text-sm px-2 py-1 rounded-full ${product.inStock === false ? 'text-red-500 bg-red-50' : 'text-gray-500 bg-gray-100'}`}>
                         {product.stockStatus}
                       </span>
                     </div>
@@ -764,6 +789,10 @@ const Index = () => {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          if (product.hasVariants) {
+                            window.location.href = `/product/${product.id}`;
+                            return;
+                          }
                           triggerAnimation(e.currentTarget, {
                             image: product.image,
                             name: product.name,
@@ -776,9 +805,10 @@ const Index = () => {
                             brand: product.brand,
                           });
                         }}
-                        className="flex-1 bg-emerald-600 text-white py-3 rounded-xl hover:bg-emerald-700 transition-colors font-semibold"
+                        className={`flex-1 text-white py-3 rounded-xl transition-colors font-semibold ${product.inStock === false ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                        disabled={product.inStock === false}
                       >
-                        أضف للسلة
+                        {product.inStock === false ? 'نفذت الكمية' : 'أضف للسلة'}
                       </button>
                       <button className="p-3 bg-white text-emerald-600 rounded-xl border border-emerald-100 hover:border-emerald-300 transition-colors">
                         <Heart className="w-5 h-5" />
@@ -865,7 +895,7 @@ const Index = () => {
                 <img
                   src={getStorageUrl(headerLogo) || "/logo.webp"}
                   alt={siteName || "روبيتا"}
-                  className="h-12 w-auto"
+                  className="h-8 w-auto"
                 />
                 <div>
                   <h3 className="text-xl font-bold text-gray-800">{siteName || generalSettings.site_name || ""}</h3>

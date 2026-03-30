@@ -18,6 +18,13 @@ export const settingsAPI = {
       throw error;
     }
   },
+  getCities: async () => {
+    const response = await fetch(`${API_BASE_URL}/cities`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch cities');
+    }
+    return response.json();
+  },
 };
 
 // Analytics API
@@ -160,7 +167,22 @@ export const authAPI = {
     const response = await fetch(`${API_BASE_URL}/user`, {
       headers: {
         'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
       },
+    });
+    return response.json();
+  },
+
+  // Update user profile
+  updateProfile: async (token: string, userData: any) => {
+    const response = await fetch(`${API_BASE_URL}/user/profile`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(userData),
     });
     return response.json();
   },
@@ -229,54 +251,69 @@ export const productsAPI = {
 // Cart API
 export const cartAPI = {
   // Get cart items
-  getCart: async () => {
-    const response = await fetch(`${API_BASE_URL}/cart`);
+  getCart: async (token?: string) => {
+    const headers: any = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE_URL}/cart`, { headers });
     return response.json();
   },
 
   // Add to cart
-  addToCart: async (productId: number, quantity: number) => {
+  addToCart: async (productId: number, quantity: number, variantId?: number, token?: string) => {
+    const headers: any = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/cart`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ product_id: productId, quantity }),
+      headers,
+      body: JSON.stringify({ product_id: productId, quantity, product_variant_id: variantId }),
     });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Add to cart failed:', response.status, errorData);
+      throw new Error(errorData.message || 'Failed to add to cart');
+    }
     return response.json();
   },
 
   // Update cart item
-  updateCartItem: async (cartId: number, quantity: number) => {
+  updateCartItem: async (cartId: number, quantity: number, token?: string) => {
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/cart/${cartId}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ quantity }),
     });
     return response.json();
   },
 
   // Remove from cart
-  removeFromCart: async (cartId: number) => {
+  removeFromCart: async (cartId: number, token?: string) => {
+    const headers: any = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/cart/${cartId}`, {
       method: 'DELETE',
+      headers
     });
     return response.json();
   },
 
   // Clear cart
-  clearCart: async () => {
+  clearCart: async (token?: string) => {
+    const headers: any = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/cart`, {
       method: 'DELETE',
+      headers
     });
     return response.json();
   },
 
   // Get cart summary
-  getCartSummary: async () => {
-    const response = await fetch(`${API_BASE_URL}/cart/summary`);
+  getCartSummary: async (token?: string) => {
+    const headers: any = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE_URL}/cart/summary`, { headers });
     return response.json();
   },
 };

@@ -29,25 +29,27 @@ class CartResource extends JsonResource
                 'sku' => $this->product->sku,
                 'in_stock' => $this->product->in_stock,
                 'stock_quantity' => $this->product->stock_quantity,
-                'category' => [
+                'category' => $this->product->category ? [
                     'id' => $this->product->category->id,
                     'name' => $this->product->category->name,
                     'slug' => $this->product->category->slug,
-                ],
-                'brand' => [
+                ] : null,
+                'brand' => $this->product->brand ? [
                     'id' => $this->product->brand->id,
                     'name' => $this->product->brand->name,
                     'slug' => $this->product->brand->slug,
-                ],
-                'images' => $this->product->images->map(function ($image) {
+                ] : null,
+                'images' => collect($this->product->images ?? [])->map(function ($image) {
                     return [
-                        'id' => $image->id,
-                        'image_path' => $image->image_path,
-                        'alt_text' => $image->alt_text,
-                        'is_primary' => $image->is_primary,
+                        'id' => $image->id ?? ($image['id'] ?? null),
+                        'image_path' => $image->image_path ?? ($image['image_path'] ?? ''),
+                        'alt_text' => $image->alt_text ?? ($image['alt_text'] ?? null),
+                        'is_primary' => $image->is_primary ?? ($image['is_primary'] ?? false),
                     ];
                 }),
             ],
+            'product_variant_id' => $this->product_variant_id,
+            'variant_values' => $this->variant_values,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

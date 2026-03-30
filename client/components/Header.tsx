@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Search, Heart, User, ShoppingCart, Menu, Package, Grid3x3, Award, Tag } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 import { settingsAPI } from "../services/api";
 import { BASE_URL, getStorageUrl } from "../config/env";
@@ -49,6 +50,7 @@ const Header = ({
 }: HeaderProps) => {
   const { state } = useCart();
   const { headerLogo } = useSiteSettings();
+  const { isAuthenticated, logout, user } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -271,8 +273,8 @@ const Header = ({
                   <img
                     src={getStorageUrl(settings.header_logo)}
                     alt={settings.header_title || ""}
-                    className="h-14 sm:h-16 w-auto object-contain"
-                    style={{ minWidth: '56px' }}
+                    className="h-8 sm:h-10 w-auto object-contain"
+                    style={{ minWidth: "32px" }}
                     loading="eager"
                     fetchPriority="high"
                   />
@@ -300,8 +302,8 @@ const Header = ({
                 <img
                   src={getStorageUrl(settings.header_logo)}
                   alt={settings.header_title || ""}
-                  className="h-14 sm:h-16 w-auto object-contain"
-                  style={{ minWidth: '56px' }}
+                  className="h-8 sm:h-10 w-auto object-contain"
+                  style={{ minWidth: "32px" }}
                   loading="eager"
                   fetchPriority="high"
                 />
@@ -349,9 +351,59 @@ const Header = ({
                 </span>
               </button>
 
-              <button className="p-2 sm:p-2.5 md:p-3 hover:bg-gray-100 rounded-full transition-colors hidden sm:flex">
-                <User className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6 text-gray-600" />
-              </button>
+              <div className="relative group">
+                <Link 
+                  to={isAuthenticated ? "/dashboard" : "/login"} 
+                  className={`flex items-center gap-2 p-1.5 sm:p-2 md:p-2.5 hover:bg-emerald-50 rounded-full transition-colors hidden sm:flex ${isAuthenticated ? 'text-emerald-600 bg-emerald-50/50' : 'text-gray-600'}`}
+                >
+                  <div className="relative">
+                    <User className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6" />
+                    {isAuthenticated && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+                    )}
+                  </div>
+                  {isAuthenticated && user && (
+                    <span className="text-xs md:text-sm font-semibold max-w-[80px] truncate">
+                      {user.name.split(' ')[0]}
+                    </span>
+                  )}
+                </Link>
+
+                {/* Account Dropdown */}
+                {isAuthenticated && (
+                  <div className="absolute left-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50">
+                    <div className="bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden w-64">
+                      {/* User Info Header */}
+                      <div className="p-4 bg-emerald-50 border-b border-emerald-100">
+                        <p className="text-xs text-emerald-600 font-medium mb-1">حسابي</p>
+                        <p className="text-sm font-bold text-gray-800">{user?.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{user?.email}</p>
+                      </div>
+
+                      {/* Menu Links */}
+                      <div className="py-2">
+                        <Link 
+                          to="/dashboard" 
+                          className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                        >
+                          <Package className="w-4 h-4" />
+                          <span>طلباتي ولوحة التحكم</span>
+                        </Link>
+                        <button 
+                          onClick={() => {
+                            logout();
+                            navigate('/');
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          <ArrowRight className="w-4 h-4" />
+                          <span>تسجيل الخروج</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <Link to="/cart" className="p-2 sm:p-2.5 md:p-3 hover:bg-gray-100 rounded-full transition-colors relative" data-cart-icon>
                 <ShoppingCart className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6 text-gray-600" />
@@ -421,17 +473,20 @@ const Header = ({
       {isMenuOpen && showActions && (
         <div className="bg-white border-t shadow-lg">
           <div className="container mx-auto px-4 py-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
               {/* Main Pages */}
               <div>
-                <h3 className="font-semibold text-gray-800 mb-3">الصفحات الرئيسية</h3>
-                <div className="space-y-2">
+                <h3 className="font-bold text-gray-900 mb-4 border-b pb-2 flex items-center gap-2">
+                  <Grid3x3 className="w-4 h-4 text-emerald-600" />
+                  <span>الصفحات الرئيسية</span>
+                </h3>
+                <div className="space-y-3">
                   {(settings.header_menu_items?.main_pages || [
                     { title: "الرئيسية", link: "/" },
                     { title: "المنتجات", link: "/products" },
                     { title: "العروض", link: "/offers" },
                   ]).map((item, index) => (
-                    <Link key={index} to={item.link} className="block text-gray-600 hover:text-emerald-600 transition-colors py-1">
+                    <Link key={index} to={item.link} onClick={() => setIsMenuOpen(false)} className="block text-gray-600 hover:text-emerald-600 transition-colors py-1 text-sm">
                       {item.title}
                     </Link>
                   ))}
@@ -440,22 +495,56 @@ const Header = ({
 
               {/* Customer Service */}
               <div>
-                <h3 className="font-semibold text-gray-800 mb-3">خدمة العملاء</h3>
-                <div className="space-y-2">
+                <h3 className="font-bold text-gray-900 mb-4 border-b pb-2 flex items-center gap-2">
+                  <Package className="w-4 h-4 text-emerald-600" />
+                  <span>خدمة العملاء</span>
+                </h3>
+                <div className="space-y-3">
                   {(settings.header_menu_items?.customer_service || [
                     { title: "من نحن", link: "/about" },
                     { title: "اتصل بنا", link: "/contact" },
-                    { title: "الضمان", link: "/warranty" },
-                  ])
-                    .filter((item: { title: string; link: string }) =>
-                      item.title !== "الشحن والتوصيل" &&
-                      item.title !== "الإرجاع والاستبدال"
-                    )
-                    .map((item, index) => (
-                      <Link key={index} to={item.link} className="block text-gray-600 hover:text-emerald-600 transition-colors">
-                        {item.title}
+                    { title: "الضمان وسياسة الإرجاع", link: "/warranty" },
+                  ]).map((item, index) => (
+                    <Link key={index} to={item.link} onClick={() => setIsMenuOpen(false)} className="block text-gray-600 hover:text-emerald-600 transition-colors py-1 text-sm">
+                      {item.title}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              {/* Account / Auth */}
+              <div>
+                <h3 className="font-bold text-gray-900 mb-4 border-b pb-2 flex items-center gap-2">
+                  <User className="w-4 h-4 text-emerald-600" />
+                  <span>حسابي</span>
+                </h3>
+                <div className="space-y-4">
+                  {isAuthenticated ? (
+                    <div className="space-y-3">
+                      <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                        <div className="text-sm font-bold text-gray-900 mb-1">{user?.name}</div>
+                        <div className="text-[10px] text-gray-500 truncate">{user?.email}</div>
+                      </div>
+                      <Link to="/dashboard" onClick={() => setIsMenuOpen(false)} className="flex items-center gap-3 text-gray-700 hover:text-emerald-600 transition-colors py-1 text-sm font-medium">
+                        <Package className="w-4 h-4" /> لوحة التحكم والطلبات
                       </Link>
-                    ))}
+                      <button 
+                        onClick={() => { logout(); setIsMenuOpen(false); navigate('/'); }}
+                        className="flex items-center gap-3 text-red-600 hover:text-red-700 transition-colors py-1 text-sm font-bold"
+                      >
+                        <ArrowRight className="w-4 h-4" /> تسجيل الخروج
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <Link to="/login" onClick={() => setIsMenuOpen(false)} className="flex items-center gap-3 text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl hover:bg-emerald-100 transition-colors text-sm font-bold">
+                        <User className="w-4 h-4" /> تسجيل الدخول
+                      </Link>
+                      <Link to="/register" onClick={() => setIsMenuOpen(false)} className="flex items-center gap-3 text-gray-700 border border-gray-200 px-4 py-3 rounded-xl hover:bg-gray-50 transition-colors text-sm font-medium">
+                        <User className="w-4 h-4" /> إنشاء حساب جديد
+                      </Link>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
