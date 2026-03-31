@@ -15,14 +15,15 @@ const getBasePath = () => {
 
 export const BASE_PATH = getBasePath();
 export const BASE_URL = !import.meta.env.DEV 
-  ? window.location.origin + BASE_PATH + '/backend/public'
+  ? window.location.origin + BASE_PATH + '/ropita/public'
   : (window.location.port === '8080' || window.location.port === '5173' ? `http://${window.location.hostname}:8000` : `http://${window.location.hostname}/ropita/backend/public`);
 
-export const API_BASE_URL = !import.meta.env.DEV 
-  ? `${BASE_URL}/index.php/api`.replace(/\/$/, '')
-  : `${BASE_URL}/api`.replace(/\/$/, '');
+export const API_BASE_URL = `${BASE_URL}/api`.replace(/\/$/, '');
 export const API_V1_BASE_URL = `${API_BASE_URL}/v1`;
-export const STORAGE_BASE_URL = `${BASE_URL}/storage`.replace(/\/$/, '');
+
+export const STORAGE_BASE_URL = !import.meta.env.DEV 
+  ? `${window.location.origin}${BASE_PATH}/ropita/public/storage`.replace(/\/$/, '')
+  : `${BASE_URL}/storage`.replace(/\/$/, '');
 
 // Utility to get full storage URL for relative paths
 export const getStorageUrl = (path: string | null | undefined): string => {
