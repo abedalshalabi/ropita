@@ -14,7 +14,7 @@ const getBaseUrl = () => {
   }
 
   // Likely accessing via Apache (XAMPP) on port 80/443
-  return `http://${host}/V1/backend/public`;
+  return `http://${host}/V1/ropita/backend/public`;
 };
 
 export const BASE_URL = getBaseUrl();
