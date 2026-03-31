@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BASE_PATH } from "./config/env";
 import { useEffect } from "react";
 import { initPixel, trackEvent } from "./utils/pixel";
 import Index from "./pages/Index";
@@ -83,7 +84,7 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <AnimationProvider>
-            <BrowserRouter>
+            <BrowserRouter basename={BASE_PATH}>
             <PixelTracker />
             <VisitorCounterWrapper />
             <Routes>

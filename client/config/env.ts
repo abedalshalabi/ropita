@@ -1,23 +1,22 @@
-// Dynamic base URL detection for XAMPP/Local environments
-const getBaseUrl = () => {
-  if (!import.meta.env.DEV) return window.location.origin + '/backend/public';
-
-  // If running via Vite dev server, we usually expect backend on 8000
-  // But if accessing via XAMPP (port 80), we should adjust
-  const host = window.location.hostname;
-  const port = window.location.port;
-
-  // Common Vite/React dev server ports → backend is on artisan serve (8000)
-  const viteDevPorts = ['3000', '4173', '5173', '5174', '8080', '8081', '8082', '8083'];
-  if (viteDevPorts.includes(port)) {
-    return `http://${host}:8000`;
+const getBasePath = () => {
+  if (!import.meta.env.DEV) {
+    const host = window.location.origin;
+    const path = window.location.pathname;
+    // قائمة ببعض المسارات المعروفة للتفريق بينها وبين اسم المجلد الفرعي
+    const knownRoutes = ['admin', 'products', 'cart', 'checkout', 'product', 'categories', 'brands', 'login', 'register', 'dashboard', 'about', 'contact', 'shipping', 'returns', 'warranty', 'order-success', 'offers'];
+    const segments = path.split('/').filter(p => p !== "");
+    
+    // إذا كان الجزء الأول من المسار ليس من الصفحات المعروفة، فهو اسم المجلد الفرعي
+    const subfolder = (segments.length > 0 && !knownRoutes.includes(segments[0])) ? `/${segments[0]}` : "";
+    return subfolder;
   }
-
-  // Likely accessing via Apache (XAMPP) on port 80/443
-  return `http://${host}/V1/ropita/backend/public`;
+  return "";
 };
 
-export const BASE_URL = getBaseUrl();
+export const BASE_PATH = getBasePath();
+export const BASE_URL = !import.meta.env.DEV 
+  ? window.location.origin + BASE_PATH + '/backend/public'
+  : (window.location.port === '8080' || window.location.port === '5173' ? `http://${window.location.hostname}:8000` : `http://${window.location.hostname}/ropita/backend/public`);
 
 export const API_BASE_URL = `${BASE_URL}/api`.replace(/\/$/, '');
 export const API_V1_BASE_URL = `${API_BASE_URL}/v1`;
