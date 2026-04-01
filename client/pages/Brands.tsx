@@ -4,6 +4,7 @@ import Header from "../components/Header";
 import { brandsAPI } from "../services/api";
 import SEO from "../components/SEO";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { getStorageUrl } from "../config/env";
 
 interface Brand {
   id: number;
@@ -35,7 +36,7 @@ const BrandsPage = () => {
           .map((brand: any) => ({
             id: brand.id,
             name: brand.name,
-            logo: brand.logo,
+            logo: getStorageUrl(brand.logo),
             description: brand.description,
             productCount: brand.products_count || 0,
           }));

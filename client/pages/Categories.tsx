@@ -5,6 +5,7 @@ import SEO from "../components/SEO";
 import { categoriesAPI } from "../services/api";
 import { ChevronRight } from "lucide-react";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { getStorageUrl } from "../config/env";
 
 interface Category {
   id: number;
@@ -258,7 +259,7 @@ const CategoriesPage = () => {
                     >
                       {node.image ? (
                         <img
-                          src={node.image}
+                          src={getStorageUrl(node.image)}
                           alt={node.name}
                           width="80"
                           height="80"
@@ -383,7 +384,7 @@ const CategoriesPage = () => {
                         <div className="w-20 h-20 rounded-full border-2 border-emerald-100 bg-white shadow-sm hover:shadow-md transition-all overflow-hidden flex items-center justify-center">
                           {parent.image ? (
                             <img
-                              src={parent.image}
+                              src={getStorageUrl(parent.image)}
                               alt={parent.name}
                               width="80"
                               height="80"
@@ -411,7 +412,7 @@ const CategoriesPage = () => {
                           <div className="w-20 h-20 rounded-full border-2 border-emerald-100 bg-white shadow-sm hover:shadow-md transition-all overflow-hidden flex items-center justify-center">
                             {child.image ? (
                               <img
-                                src={child.image}
+                                src={getStorageUrl(child.image)}
                                 alt={child.name}
                                 width="80"
                                 height="80"
@@ -450,7 +451,7 @@ const CategoriesPage = () => {
                     >
                       {parent.image ? (
                         <img
-                          src={parent.image}
+                          src={getStorageUrl(parent.image)}
                           alt={parent.name}
                           width="160"
                           height="160"
