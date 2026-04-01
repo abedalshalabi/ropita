@@ -35,6 +35,14 @@ use App\Http\Controllers\Api\AdminCustomerController;
 // Public routes
 
 Route::prefix('v1')->group(function () {
+    // Utility route to link storage on cPanel
+    Route::get('/link-storage', function () {
+        $exitCode = \Illuminate\Support\Facades\Artisan::call('storage:link');
+        return $exitCode === 0 
+            ? '✅ Storage link created successfully!' 
+            : '❌ Error creating storage link: ' . \Illuminate\Support\Facades\Artisan::output();
+    });
+
     // Authentication routes
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
