@@ -273,8 +273,8 @@ const Header = ({
                   <img
                     src={getStorageUrl(settings.header_logo)}
                     alt={settings.header_title || ""}
-                    className="h-8 sm:h-10 w-auto object-contain"
-                    style={{ minWidth: "32px" }}
+                    className="h-6 sm:h-8 md:h-10 w-auto object-contain"
+                    style={{ minWidth: "24px" }}
                     loading="eager"
                     fetchPriority="high"
                   />
@@ -302,8 +302,8 @@ const Header = ({
                 <img
                   src={getStorageUrl(settings.header_logo)}
                   alt={settings.header_title || ""}
-                  className="h-8 sm:h-10 w-auto object-contain"
-                  style={{ minWidth: "32px" }}
+                  className="h-6 sm:h-8 md:h-10 w-auto object-contain"
+                  style={{ minWidth: "24px" }}
                   loading="eager"
                   fetchPriority="high"
                 />
