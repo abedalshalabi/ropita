@@ -17,7 +17,7 @@ import { useAnimation } from "../context/AnimationContext";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
 import { productsAPI, categoriesAPI, brandsAPI, wishlistAPI, settingsAPI } from "../services/api";
-import { STORAGE_BASE_URL } from "../config/env";
+import { STORAGE_BASE_URL, getStorageUrl } from "../config/env";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 
 interface Product {
@@ -688,12 +688,7 @@ const Products = () => {
                   return img.image_url;
                 }
                 if (img.image_path) {
-                  const normalizedPath = String(img.image_path)
-                    .replace(/^\/?storage\//, '')
-                    .replace(/^\//, '');
-                  return img.image_path.startsWith('http')
-                    ? img.image_path
-                    : `${STORAGE_BASE_URL}/${normalizedPath}`;
+                  return getStorageUrl(img.image_path);
                 }
               }
               return '';
@@ -708,12 +703,7 @@ const Products = () => {
           (Array.isArray(product.images) ? product.images[0] : undefined);
 
         if (product.cover_image) {
-          const normalizedPath = String(product.cover_image)
-            .replace(/^\/?storage\//, '')
-            .replace(/^\//, '');
-          imageUrl = product.cover_image.startsWith('http')
-            ? product.cover_image
-            : `${STORAGE_BASE_URL}/${normalizedPath}`;
+          imageUrl = getStorageUrl(product.cover_image);
         } else if (firstImageSource) {
           if (typeof firstImageSource === 'string') {
             imageUrl = firstImageSource;
@@ -721,12 +711,7 @@ const Products = () => {
             if (firstImageSource.image_url) {
               imageUrl = firstImageSource.image_url;
             } else if (firstImageSource.image_path) {
-              const normalizedPath = String(firstImageSource.image_path)
-                .replace(/^\/?storage\//, '')
-                .replace(/^\//, '');
-              imageUrl = firstImageSource.image_path.startsWith('http')
-                ? firstImageSource.image_path
-                : `${STORAGE_BASE_URL}/${normalizedPath}`;
+              imageUrl = getStorageUrl(firstImageSource.image_path);
             }
           }
         }

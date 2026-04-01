@@ -25,7 +25,7 @@ import { trackEvent } from "../utils/pixel";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
 import { productsAPI, categoriesAPI, settingsAPI } from "../services/api";
-import { STORAGE_BASE_URL } from "../config/env";
+import { STORAGE_BASE_URL, getStorageUrl } from "../config/env";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 
 interface ProductDetail {
@@ -323,13 +323,11 @@ const Product = () => {
         if (apiProduct.images && Array.isArray(apiProduct.images)) {
           apiProduct.images.forEach((img: any) => {
             if (typeof img === 'string') {
-              const normalizedPath = img.replace(/^\/?storage\//, '').replace(/^\//, '');
-              transformedImages.push(img.startsWith('http') ? img : `${STORAGE_BASE_URL}/${normalizedPath}`);
+              transformedImages.push(getStorageUrl(img));
             } else if (img && typeof img === 'object') {
               const path = img.image_url || img.image_path;
               if (path) {
-                const normalizedPath = path.replace(/^\/?storage\//, '').replace(/^\//, '');
-                transformedImages.push(path.startsWith('http') ? path : `${STORAGE_BASE_URL}/${normalizedPath}`);
+                transformedImages.push(getStorageUrl(path));
               }
             }
           });
@@ -642,14 +640,7 @@ const Product = () => {
   // Ensure product image URL is absolute and properly formatted
   let productImage = `${siteUrl}/placeholder.svg`;
   if (product.images && product.images[0]) {
-    const img = product.images[0];
-    if (img.startsWith('http')) {
-      productImage = img;
-    } else if (img.startsWith('/')) {
-      productImage = `${STORAGE_BASE_URL}${img}`;
-    } else {
-      productImage = `${STORAGE_BASE_URL}/${img}`;
-    }
+    productImage = getStorageUrl(product.images[0]);
   }
 
   // Build breadcrumb items for structured data
@@ -701,7 +692,7 @@ const Product = () => {
       "@type": "Product",
       "name": product.name,
       "description": product.description || `${product.name} من ${product.brand}${siteName ? ` - متوفر في ${siteName}` : ''}.`,
-      "image": product.images?.map((img: string) => img.startsWith('http') ? img : `${STORAGE_BASE_URL}/${img}`) || [productImage],
+      "image": product.images?.map((img: string) => getStorageUrl(img)) || [productImage],
       "brand": {
         "@type": "Brand",
         "name": product.brand

@@ -119,7 +119,7 @@ const Index = () => {
     return filtered.map(cat => ({
       id: cat.id,
       name: cat.name,
-      image: cat.image || "https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=400&h=400&fit=crop&auto=format&q=80",
+      image: getStorageUrl(cat.image) || "https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=400&h=400&fit=crop&auto=format&q=80",
       href: `/products?category_id=${cat.id}`,
       color: cat.color || "bg-emerald-500"
     }));
@@ -131,7 +131,7 @@ const Index = () => {
     .map(brand => ({
       id: brand.id,
       name: brand.name,
-      logo: brand.logo || '',
+      logo: getStorageUrl(brand.logo) || '',
       productCount: brand.products_count || 0,
       slug: brand.slug || brand.name.toLowerCase(),
     })) : [];
@@ -152,7 +152,7 @@ const Index = () => {
       name: product.name,
       price: product.price,
       originalPrice: product.original_price,
-      image: imageUrl,
+      image: getStorageUrl(imageUrl),
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       category: product.category?.name || "عام",
@@ -183,7 +183,7 @@ const Index = () => {
       name: product.name,
       price: product.price,
       originalPrice: product.original_price,
-      image: imageUrl,
+      image: getStorageUrl(imageUrl),
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       brand: product.brand?.name || "",
@@ -395,7 +395,7 @@ const Index = () => {
                     key={item.id}
                     className={`relative ${item.text_color} py-12 sm:py-16 lg:py-24 overflow-hidden min-h-[350px] sm:min-h-[450px] lg:min-h-[600px] flex items-center justify-start`}
                     style={item.image ? {
-                      backgroundImage: `url(${item.image})`,
+                      backgroundImage: `url(${getStorageUrl(item.image)})`,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                       backgroundRepeat: 'no-repeat',
