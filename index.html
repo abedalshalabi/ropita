@@ -5,6 +5,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   
+  <script>
+    (function() {
+      var path = window.location.pathname;
+      var segments = path.split('/').filter(Boolean);
+      var base = '/';
+      
+      // Known routes used by the App
+      var knownRoutes = ['product', 'products', 'categories', 'brands', 'cart', 'checkout', 'login', 'register', 'dashboard', 'about', 'contact', 'shipping', 'returns', 'warranty', 'order-success', 'offers', 'admin'];
+      
+      // If we are in a subfolder (like /V1/), segments[0] won't be a known route
+      if (segments.length > 0 && knownRoutes.indexOf(segments[0]) === -1) {
+        base = '/' + segments[0] + '/';
+      }
+      
+      document.write('<base href="' + base + '" />');
+    })();
+  </script>
+  
   <!-- SEO meta tags will be dynamically injected by React -->
   <title>تحميل...</title>
   
