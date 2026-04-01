@@ -28,12 +28,21 @@ export const STORAGE_BASE_URL = !import.meta.env.DEV
 // Utility to get full storage URL for relative paths
 export const getStorageUrl = (path: string | null | undefined): string => {
   if (!path) return '';
+  
   // Clean path: remove trailing slash if any
   const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
+
+  // إذا كان المسار يحتوي على كلمة storage، نقوم باستخلاص الجزء الذي يليها ودمجه مع عنوان السيرفر الحالي
+  // هذا يحل مشكلة الروابط المخزنة كـ localhost في قاعدة البيانات
+  if (cleanPath.includes('/storage/')) {
+    const relativePath = cleanPath.split('/storage/')[1];
+    return `${STORAGE_BASE_URL}/${relativePath}`;
+  }
 
   if (cleanPath.startsWith('http')) return cleanPath;
   if (cleanPath.startsWith('/storage')) return `${BASE_URL}${cleanPath}`;
   if (cleanPath.startsWith('storage')) return `${BASE_URL}/${cleanPath}`;
+  
   return cleanPath;
 };
 
