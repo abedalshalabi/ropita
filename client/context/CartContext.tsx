@@ -145,7 +145,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           name: item.product.name,
           price: Number(item.price),
           image: (() => {
-            const imgPath = item.product.images?.find((img: any) => img.is_primary)?.image_path || item.product.images?.[0]?.image_path || '';
+            const imgPath = item.product.cover_image || item.product.images?.find((img: any) => img.is_primary)?.image_path || item.product.images?.[0]?.image_path || '';
             if (!imgPath) return '';
             if (imgPath.startsWith('http')) return imgPath;
             return `${STORAGE_BASE_URL}/${imgPath.replace(/^\/?(storage\/)?/, '')}`;

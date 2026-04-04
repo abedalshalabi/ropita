@@ -473,7 +473,7 @@ const Product = () => {
 
       // Trigger animation
       triggerAnimation(buttonElement, {
-        image: product.images && product.images[0] ? product.images[0] : '/placeholder.svg',
+        image: product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg'),
         name: product.name
       });
 
@@ -485,7 +485,7 @@ const Product = () => {
         price: displayPrice,
         original_price: displayOriginalPrice,
         discount_percentage: product.discountPercentage,
-        image: product.images && product.images[0] ? product.images[0] : '/placeholder.svg',
+        image: product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg'),
         brand: product.brand || '',
         type: 'product',
         selected_options: matchingVariant?.variant_values,

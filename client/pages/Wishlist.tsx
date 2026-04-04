@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ShoppingBag, Trash2 } from "lucide-react";
 import Header from "../components/Header";
@@ -19,6 +19,7 @@ interface WishlistProduct {
   brand?: {
     name: string;
   };
+  cover_image?: string;
   images?: Array<{
     image_url?: string;
     image_path?: string;
@@ -185,7 +186,7 @@ const Wishlist = () => {
 
           <div className="space-y-4">
             {items.map((item) => {
-              const image = item.images?.[0]?.image_url || item.images?.[0]?.image_path || "/placeholder.svg";
+              const image = item.cover_image || item.images?.[0]?.image_url || item.images?.[0]?.image_path || "/placeholder.svg";
               const discountPercentage = Number(item.discount_percentage || 0);
               const { finalPrice, originalPrice, priceLabel, originalPriceLabel, hasDiscount } = getWishlistPriceInfo(item);
 

@@ -50,6 +50,7 @@ class CartResource extends JsonResource
                         'is_primary' => $image->is_primary ?? ($image['is_primary'] ?? false),
                     ];
                 }),
+                'cover_image' => $this->product->cover_image ? (str_starts_with($this->product->cover_image, 'http') ? $this->product->cover_image : asset('storage/' . $this->product->cover_image)) : null,
             ],
             'product_variant_id' => $this->product_variant_id,
             'variant_values' => $this->variant_values,
