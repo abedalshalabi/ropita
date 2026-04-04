@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Gift,
   MessageSquare,
+  Mail,
   MapPin,
   ExternalLink,
   Image,
@@ -149,6 +150,11 @@ function AdminLayout({ children }: AdminLayoutProps) {
       title: 'رسائل الاتصال',
       icon: MessageSquare,
       path: '/admin/contact-messages',
+    },
+    {
+      title: 'مشتركو النشرة',
+      icon: Mail,
+      path: '/admin/newsletter-subscribers',
     },
   ];
 

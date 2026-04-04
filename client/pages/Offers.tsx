@@ -1,12 +1,109 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Clock, Star, ShoppingCart, Heart, Eye, Zap, Gift, Percent, Timer } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useCart } from "../context/CartContext";
 import { useAnimation } from "../context/AnimationContext";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
-import { offersAPI } from "../services/api";
+import { offersAPI, newsletterAPI } from "../services/api";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { useWishlist } from "../context/WishlistContext";
+
+// Helper function to format price without trailing zeros
+const formatPrice = (price: number | string): string => {
+  // Convert to number if it's a string
+  const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+
+  // Check if it's a whole number
+  if (numPrice % 1 === 0) {
+    // Return as integer without decimals
+    return numPrice.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+  } else {
+    // Return with decimals but remove trailing zeros
+    return numPrice.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }).replace(/\.?0+$/, '');
+  }
+};
+
+const colorNameToHex: Record<string, string> = {
+  "احمر": "#ef4444",
+  "أحمر": "#ef4444",
+  "ازرق": "#3b82f6",
+  "أزرق": "#3b82f6",
+  "اخضر": "#22c55e",
+  "أخضر": "#22c55e",
+  "اصفر": "#eab308",
+  "أصفر": "#eab308",
+  "برتقالي": "#f97316",
+  "بنفسجي": "#a855f7",
+  "وردي": "#ec4899",
+  "زهري": "#ec4899",
+  "اسود": "#111827",
+  "أسود": "#111827",
+  "ابيض": "#ffffff",
+  "أبيض": "#ffffff",
+  "رمادي": "#9ca3af",
+  "بني": "#92400e",
+  "كحلي": "#1e3a8a",
+  "beige": "#d6c3a5",
+  "black": "#111827",
+  "white": "#ffffff",
+  "red": "#ef4444",
+  "blue": "#3b82f6",
+  "green": "#22c55e",
+  "yellow": "#eab308",
+  "orange": "#f97316",
+  "purple": "#a855f7",
+  "pink": "#ec4899",
+  "gray": "#9ca3af",
+  "grey": "#9ca3af",
+  "brown": "#92400e",
+  "navy": "#1e3a8a",
+};
+
+const resolveColorHex = (label: string): string | null => {
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  if (/^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(trimmed)) return trimmed;
+  return colorNameToHex[trimmed.toLowerCase()] || null;
+};
+
+const extractAvailableColors = (filterValues?: Record<string, any>): string[] => {
+  if (!filterValues || typeof filterValues !== "object") return [];
+  const colors = new Set<string>();
+
+  Object.entries(filterValues).forEach(([key, rawValue]) => {
+    const compactKey = key.toLowerCase().replace(/\s+/g, "");
+    const isColorKey =
+      compactKey.includes("لون") ||
+      compactKey.includes("الوان") ||
+      compactKey.includes("ألوان") ||
+      compactKey.includes("الالوان") ||
+      compactKey.includes("color") ||
+      compactKey.includes("colors");
+
+    if (!isColorKey) return;
+
+    const values = Array.isArray(rawValue)
+      ? rawValue
+      : typeof rawValue === "string"
+        ? rawValue.split(",")
+        : [];
+
+    values.forEach((item) => {
+      if (typeof item !== "string") return;
+      const normalized = item.trim().replace(/\s+/g, " ");
+      if (normalized) colors.add(normalized);
+    });
+  });
+
+  return Array.from(colors);
+};
 
 interface Offer {
   id: number;
@@ -29,6 +126,9 @@ interface Offer {
     brand?: string;
     rating?: number;
     reviews_count?: number;
+    has_different_prices?: boolean;
+    has_variants?: boolean;
+    filter_values?: Record<string, any>;
   }>;
   bundle_items?: Array<{
     product_id: number;
@@ -49,10 +149,16 @@ interface Offer {
 const Offers = () => {
   const { siteName } = useSiteSettings();
 
+  const navigate = useNavigate();
   const { addItem } = useCart();
   const { triggerAnimation } = useAnimation();
+  const { wishlistProcessing, toggleWishlist, isWishlisted } = useWishlist();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterLoading, setNewsletterLoading] = useState(false);
+  const [newsletterMessage, setNewsletterMessage] = useState("");
+  const [newsletterMessageType, setNewsletterMessageType] = useState<"success" | "error" | "">("");
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,
@@ -81,6 +187,36 @@ const Offers = () => {
       return () => clearInterval(timer);
     }
   }, [offers]);
+
+  const handleNewsletterSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newsletterEmail.trim()) {
+      setNewsletterMessageType("error");
+      setNewsletterMessage("يرجى إدخال البريد الإلكتروني.");
+      return;
+    }
+
+    try {
+      setNewsletterLoading(true);
+      setNewsletterMessage("");
+      setNewsletterMessageType("");
+
+      const response = await newsletterAPI.subscribe({
+        email: newsletterEmail.trim(),
+        source: "offers",
+      });
+
+      setNewsletterMessageType("success");
+      setNewsletterMessage(response.message || "تم الاشتراك بنجاح.");
+      setNewsletterEmail("");
+    } catch (err: any) {
+      setNewsletterMessageType("error");
+      setNewsletterMessage(err.message || "حدث خطأ أثناء الاشتراك.");
+    } finally {
+      setNewsletterLoading(false);
+    }
+  };
 
   const loadOffers = async () => {
     try {
@@ -114,9 +250,11 @@ const Offers = () => {
     const product = offer.products?.[0];
     if (!product) return null;
 
-    const progressPercentage = offer.stock_limit
-      ? offer.progress_percentage
-      : 0;
+    const isInWishlist = isWishlisted(product.id);
+    const isProcessingWishlist = !!wishlistProcessing[product.id];
+    const availableColors = extractAvailableColors(product.filter_values);
+
+    const progressPercentage = offer.stock_limit ? offer.progress_percentage : 0;
 
     const calculatePrice = () => {
       if (offer.discount_percentage) {
@@ -131,7 +269,7 @@ const Offers = () => {
 
     const originalPrice = product.original_price || product.price;
     const discountedPrice = calculatePrice();
-    const discount = originalPrice - discountedPrice;
+    const discountPercent = offer.discount_percentage || Math.round((1 - discountedPrice / originalPrice) * 100);
 
     const formatTimeLeft = () => {
       const remaining = offer.remaining_time;
@@ -144,103 +282,145 @@ const Offers = () => {
     };
 
     return (
-      <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group border-2 border-red-200">
-        <div className="relative">
-          <Link to={`/product/${product.id}`}>
+      <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full border border-emerald-50">
+        <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
+          <Link to={`/product/${product.id}`} className="block w-full h-full">
             <img
-              src={product.image || '/placeholder-product.jpg'}
+              src={product.image || "/placeholder.svg"}
               alt={product.name}
-              className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
+              className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
               onError={(e) => {
-                e.currentTarget.src = '/placeholder-product.jpg';
+                e.currentTarget.src = "/placeholder.svg";
               }}
             />
           </Link>
-          <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-2 rounded-full">
-            <div className="flex items-center gap-1">
-              <Zap className="w-4 h-4" />
-              <span className="text-sm font-bold">فلاش ديل</span>
+
+          <div className="absolute top-1 right-1 md:top-2 md:right-2 z-10 flex flex-col gap-1 items-end">
+            <div className="bg-emerald-600 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[8px] md:text-xs font-bold shadow-lg flex items-center gap-1">
+              <Zap className="w-2 h-2 md:w-3 md:h-3 animate-pulse" />
+              <span>FLASH</span>
             </div>
+            {discountPercent > 0 && (
+              <span className="bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold shadow-md">
+                خصم {discountPercent}%
+              </span>
+            )}
           </div>
-          <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-            -{offer.discount_percentage || Math.round((discount / originalPrice) * 100)}%
-          </div>
+
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isProcessingWishlist) {
+                toggleWishlist(product.id);
+              }
+            }}
+            className={`absolute top-1 left-1 md:top-2 md:left-2 p-1.5 md:p-2 rounded-full shadow-md transition-colors z-10 ${isInWishlist ? "bg-red-50 hover:bg-red-100" : "bg-white hover:bg-gray-50"
+              }`}
+            disabled={isProcessingWishlist}
+          >
+            <Heart
+              className={`w-3 h-3 md:w-4 md:h-4 ${isInWishlist ? "text-red-500" : "text-gray-600"}`}
+              fill={isInWishlist ? "currentColor" : "none"}
+            />
+          </button>
+
           {offer.stock_limit && (
-            <div className="absolute bottom-4 left-4 right-4 bg-black bg-opacity-70 text-white p-3 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm">باقي:</span>
-                <div className="flex items-center gap-1">
-                  <Timer className="w-4 h-4" />
-                  <span className="font-mono text-sm">{formatTimeLeft()}</span>
-                </div>
+            <div className="absolute bottom-1 left-1 right-1 md:bottom-2 md:left-2 md:right-2 bg-black/70 backdrop-blur-sm text-white p-1.5 md:p-2 rounded-lg z-10">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[8px] md:text-[10px]">باقي: {formatTimeLeft()}</span>
               </div>
-              <div className="w-full bg-gray-600 rounded-full h-2 mb-2">
+              <div className="w-full bg-gray-600 rounded-full h-1 md:h-1.5">
                 <div
-                  className="bg-red-500 h-2 rounded-full transition-all duration-300"
+                  className="bg-emerald-400 h-full rounded-full transition-all duration-300"
                   style={{ width: `${progressPercentage}%` }}
                 ></div>
-              </div>
-              <div className="text-xs text-center">
-                تم بيع {offer.sold_count} من {offer.stock_limit}
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-2">
-            {product.brand && (
-              <span className="text-sm text-emerald-600 font-semibold">{product.brand}</span>
-            )}
-            {product.rating && (
-              <div className="flex items-center gap-1">
-                <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                <span className="text-sm text-gray-600">{product.rating.toFixed(1)}</span>
-                {product.reviews_count && (
-                  <span className="text-sm text-gray-400">({product.reviews_count})</span>
-                )}
-              </div>
-            )}
-          </div>
+        <Link to={`/product/${product.id}`} className="block flex-grow">
+          <h3 className="text-sm md:text-base font-semibold text-gray-800 line-clamp-2 hover:text-emerald-600 transition-colors mb-1 md:mb-2 min-h-[2.5rem] md:min-h-[3rem]">
+            {product.name}
+          </h3>
+        </Link>
 
-          <Link to={`/product/${product.id}`}>
-            <h3 className="text-lg font-bold text-gray-800 mb-3 line-clamp-2 hover:text-emerald-600 transition-colors cursor-pointer">
-              {product.name}
-            </h3>
-          </Link>
-
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-red-600">{discountedPrice.toFixed(2)} شيكل</span>
-              </div>
-              <span className="text-lg text-gray-400 line-through">{originalPrice.toFixed(2)} شيكل</span>
-              <div className="text-sm text-green-600 font-semibold">
-                وفر {discount.toFixed(2)} شيكل
-              </div>
+        {availableColors.length > 0 && (
+          <div className="mb-2">
+            <div className="mb-1 text-[11px] font-medium text-gray-500">الألوان:</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {availableColors.slice(0, 4).map((color) => {
+                const colorHex = resolveColorHex(color);
+                return (
+                  <span
+                    key={`${product.id}-${color}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700"
+                    title={color}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 rounded-full border border-gray-300"
+                      style={{ backgroundColor: colorHex || "#e5e7eb" }}
+                    />
+                    <span>{color}</span>
+                  </span>
+                );
+              })}
+              {availableColors.length > 4 && (
+                <span className="text-[11px] text-gray-500">+{availableColors.length - 4}</span>
+              )}
             </div>
           </div>
+        )}
 
-          <button
-            onClick={(e) => {
-              triggerAnimation(e.currentTarget, {
-                image: product.image,
-                name: product.name
-              });
-              addItem({
-                id: product.id,
-                name: product.name,
-                price: discountedPrice,
-                image: product.image || '',
-                brand: product.brand || ''
-              });
-            }}
-            className="w-full bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition-colors font-semibold flex items-center justify-center gap-2"
-          >
-            <ShoppingCart className="w-5 h-5" />
-            اشتري الآن
-          </button>
+        {product.brand && (
+          <div className="text-[10px] md:text-xs text-emerald-600 font-semibold mb-1">{product.brand}</div>
+        )}
+
+        <div className="flex flex-col mb-2 md:mb-4">
+          {product.has_different_prices && (
+            <span className="text-[10px] md:text-xs text-gray-400 mb-0.5">ابتداء من</span>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-lg md:text-xl font-bold text-emerald-600">
+              {formatPrice(discountedPrice)} ₪
+            </span>
+            {originalPrice > discountedPrice && (
+              <span className="text-sm md:text-base text-gray-500 line-through">{formatPrice(originalPrice)} ₪</span>
+            )}
+          </div>
         </div>
+
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (product.has_variants) {
+              navigate(`/product/${product.id}`);
+              return;
+            }
+
+            const imageForAnimation = product.image || "/placeholder.svg";
+            triggerAnimation(e.currentTarget, {
+              image: imageForAnimation,
+              name: product.name
+            });
+
+            addItem({
+              id: product.id,
+              name: product.name,
+              price: discountedPrice,
+              original_price: originalPrice,
+              image: imageForAnimation,
+              brand: product.brand || '',
+              manage_stock: false
+            });
+          }}
+          className="w-full bg-emerald-500 text-white py-1.5 md:py-2 rounded-lg transition-colors text-sm md:text-base font-medium shadow-sm hover:bg-emerald-600"
+        >
+          {product.has_variants ? 'عرض الخيارات' : 'أضف للسلة'}
+        </button>
       </div>
     );
   };
@@ -248,6 +428,10 @@ const Offers = () => {
   const ProductCard = ({ offer }: { offer: Offer }) => {
     const product = offer.products?.[0];
     if (!product) return null;
+
+    const isInWishlist = isWishlisted(product.id);
+    const isProcessingWishlist = !!wishlistProcessing[product.id];
+    const availableColors = extractAvailableColors(product.filter_values);
 
     const calculatePrice = () => {
       if (offer.discount_percentage) {
@@ -262,97 +446,131 @@ const Offers = () => {
 
     const originalPrice = product.original_price || product.price;
     const discountedPrice = calculatePrice();
-    const discount = originalPrice - discountedPrice;
-    const discountPercent = offer.discount_percentage || Math.round((discount / originalPrice) * 100);
+    const discountPercent = offer.discount_percentage || Math.round((1 - discountedPrice / originalPrice) * 100);
 
     return (
-      <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <div className="relative">
-          <Link to={`/product/${product.id}`}>
+      <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
+        <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
+          <Link to={`/product/${product.id}`} className="block w-full h-full">
             <img
-              src={product.image || '/placeholder-product.jpg'}
+              src={product.image || "/placeholder.svg"}
               alt={product.name}
-              className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
+              className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
               onError={(e) => {
-                e.currentTarget.src = '/placeholder-product.jpg';
+                e.currentTarget.src = "/placeholder.svg";
               }}
             />
           </Link>
-          <span className="absolute top-4 right-4 bg-emerald-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
-            عرض الأسبوع
-          </span>
-          <div className="absolute top-4 left-4 bg-green-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-            -{discountPercent}%
-          </div>
-          <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
-            <div className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-              -{discountPercent}%
-            </div>
-            <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              <button className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-red-50 transition-colors">
-                <Heart className="w-5 h-5 text-gray-600 hover:text-red-500" />
-              </button>
-              <Link to={`/product/${product.id}`} className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-emerald-50 transition-colors">
-                <Eye className="w-5 h-5 text-gray-600 hover:text-emerald-500" />
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-2">
-            {product.brand && (
-              <span className="text-sm text-emerald-600 font-semibold">{product.brand}</span>
-            )}
-            {product.rating && (
-              <div className="flex items-center gap-1">
-                <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                <span className="text-sm text-gray-600">{product.rating.toFixed(1)}</span>
-                {product.reviews_count && (
-                  <span className="text-sm text-gray-400">({product.reviews_count})</span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <Link to={`/product/${product.id}`}>
-            <h3 className="text-lg font-bold text-gray-800 mb-3 line-clamp-2 hover:text-emerald-600 transition-colors cursor-pointer">
-              {product.name}
-            </h3>
-          </Link>
-
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-emerald-600">{discountedPrice.toFixed(2)} شيكل</span>
-              </div>
-              <span className="text-lg text-gray-400 line-through">{originalPrice.toFixed(2)} شيكل</span>
-              <div className="text-sm text-green-600 font-semibold">
-                وفر {discount.toFixed(2)} شيكل
-              </div>
-            </div>
-          </div>
+          {discountPercent > 0 && (
+            <span className="absolute top-1 right-1 md:top-2 md:right-2 bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold z-10">
+              خصم {discountPercent}%
+            </span>
+          )}
 
           <button
             onClick={(e) => {
-              triggerAnimation(e.currentTarget, {
-                image: product.image,
-                name: product.name
-              });
-              addItem({
-                id: product.id,
-                name: product.name,
-                price: discountedPrice,
-                image: product.image || '',
-                brand: product.brand || ''
-              });
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isProcessingWishlist) {
+                toggleWishlist(product.id);
+              }
             }}
-            className="w-full bg-emerald-600 text-white py-3 rounded-lg hover:bg-emerald-700 transition-colors font-semibold flex items-center justify-center gap-2"
+            className={`absolute top-1 left-1 md:top-2 md:left-2 p-1.5 md:p-2 rounded-full shadow-md transition-colors z-10 ${isInWishlist ? "bg-red-50 hover:bg-red-100" : "bg-white hover:bg-gray-50"
+              }`}
+            disabled={isProcessingWishlist}
           >
-            <ShoppingCart className="w-5 h-5" />
-            أضف للسلة
+            <Heart
+              className={`w-3 h-3 md:w-4 md:h-4 ${isInWishlist ? "text-red-500" : "text-gray-600"}`}
+              fill={isInWishlist ? "currentColor" : "none"}
+            />
           </button>
+
+          <span className="absolute bottom-1 right-1 md:bottom-2 md:right-2 bg-emerald-500/90 backdrop-blur-sm text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[8px] md:text-xs font-bold z-10 shadow-lg border border-white/20">
+            عرض الأسبوع
+          </span>
         </div>
+
+        <Link to={`/product/${product.id}`} className="block flex-grow">
+          <h3 className="text-sm md:text-base font-semibold text-gray-800 line-clamp-2 hover:text-emerald-600 transition-colors mb-1 md:mb-2 min-h-[2.5rem] md:min-h-[3rem]">
+            {product.name}
+          </h3>
+        </Link>
+
+        {availableColors.length > 0 && (
+          <div className="mb-2">
+            <div className="mb-1 text-[11px] font-medium text-gray-500">الألوان:</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {availableColors.slice(0, 4).map((color) => {
+                const colorHex = resolveColorHex(color);
+                return (
+                  <span
+                    key={`${product.id}-${color}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700"
+                    title={color}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 rounded-full border border-gray-300"
+                      style={{ backgroundColor: colorHex || "#e5e7eb" }}
+                    />
+                    <span>{color}</span>
+                  </span>
+                );
+              })}
+              {availableColors.length > 4 && (
+                <span className="text-[11px] text-gray-500">+{availableColors.length - 4}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {product.brand && (
+          <div className="text-[10px] md:text-xs text-emerald-600 font-semibold mb-1">{product.brand}</div>
+        )}
+
+        <div className="flex flex-col mb-2 md:mb-4">
+          {product.has_different_prices && (
+            <span className="text-[10px] md:text-xs text-gray-400 mb-0.5">ابتداء من</span>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-lg md:text-xl font-bold text-emerald-600">
+              {formatPrice(discountedPrice)} ₪
+            </span>
+            {originalPrice > discountedPrice && (
+              <span className="text-sm md:text-base text-gray-500 line-through">{formatPrice(originalPrice)} ₪</span>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (product.has_variants) {
+              navigate(`/product/${product.id}`);
+              return;
+            }
+
+            const imageForAnimation = product.image || "/placeholder.svg";
+            triggerAnimation(e.currentTarget, {
+              image: imageForAnimation,
+              name: product.name
+            });
+
+            addItem({
+              id: product.id,
+              name: product.name,
+              price: discountedPrice,
+              original_price: originalPrice,
+              image: imageForAnimation,
+              brand: product.brand || '',
+              manage_stock: false
+            });
+          }}
+          className="w-full bg-emerald-500 text-white py-1.5 md:py-2 rounded-lg transition-colors text-sm md:text-base font-medium shadow-sm hover:bg-emerald-600"
+        >
+          {product.has_variants ? 'عرض الخيارات' : 'أضف للسلة'}
+        </button>
       </div>
     );
   };
@@ -366,29 +584,29 @@ const Offers = () => {
     const discountPercent = Math.round((discount / originalPrice) * 100);
 
     return (
-      <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border-2 border-purple-200">
+      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-emerald-100">
         <div className="relative">
           {offer.image ? (
             <img
               src={offer.image}
               alt={offer.title}
-              className="w-full h-48 object-cover"
+              className="w-full h-64 object-cover"
               onError={(e) => {
                 e.currentTarget.src = '/placeholder-product.jpg';
               }}
             />
           ) : (
-            <div className="w-full h-48 bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
-              <Gift className="w-16 h-16 text-purple-400" />
+            <div className="w-full h-64 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
+              <Gift className="w-16 h-16 text-emerald-400" />
             </div>
           )}
-          <div className="absolute top-4 right-4 bg-purple-500 text-white px-3 py-2 rounded-full">
+          <div className="absolute top-4 right-4 bg-emerald-500 text-white px-3 py-2 rounded-full">
             <div className="flex items-center gap-1">
               <Gift className="w-4 h-4" />
               <span className="text-sm font-bold">باقة حصرية</span>
             </div>
           </div>
-          <div className="absolute top-4 left-4 bg-purple-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+          <div className="absolute top-4 left-4 bg-amber-400 text-white px-3 py-1 rounded-full text-sm font-bold">
             -{discountPercent}%
           </div>
         </div>
@@ -404,10 +622,10 @@ const Offers = () => {
             <ul className="space-y-1">
               {offer.bundle_items.map((item, index) => (
                 <li key={index} className="text-sm text-gray-700 flex items-center gap-2">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
                   <Link
                     to={`/product/${item.product_id}`}
-                    className="hover:text-purple-600 transition-colors"
+                    className="hover:text-emerald-600 transition-colors"
                   >
                     {item.product_name} (x{item.quantity})
                   </Link>
@@ -418,7 +636,7 @@ const Offers = () => {
 
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl font-bold text-purple-600">{bundlePrice.toFixed(2)} شيكل</span>
+              <span className="text-2xl font-bold text-emerald-700">{bundlePrice.toFixed(2)} شيكل</span>
             </div>
             <span className="text-lg text-gray-400 line-through">{originalPrice.toFixed(2)} شيكل</span>
             <div className="text-lg text-green-600 font-bold">
@@ -441,7 +659,7 @@ const Offers = () => {
                 type: 'offer'
               });
             }}
-            className="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
+            className="w-full bg-emerald-500 text-white py-3 rounded-lg hover:bg-emerald-600 transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <ShoppingCart className="w-5 h-5" />
             اشتري الباقة
@@ -508,36 +726,36 @@ const Offers = () => {
       />
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-r from-red-900 to-pink-900 text-white py-16">
+      <section className="bg-gradient-to-r from-emerald-700 to-teal-600 text-white py-16">
         <div className="container mx-auto px-4 text-center">
           <h1 className="text-4xl font-bold mb-4">العروض الحصرية</h1>
           <p className="text-xl text-red-200 mb-8">اكتشف أفضل العروض والخصومات على جميع المنتجات</p>
 
           {/* Countdown Timer */}
           {timeLeft.days > 0 || timeLeft.hours > 0 || timeLeft.minutes > 0 || timeLeft.seconds > 0 ? (
-            <div className="max-w-md mx-auto bg-black bg-opacity-30 rounded-2xl p-6">
+            <div className="max-w-md mx-auto bg-white/10 border border-white/15 rounded-2xl p-6 backdrop-blur-sm">
               <h3 className="text-lg font-semibold mb-4">العرض ينتهي خلال:</h3>
               <div className="grid grid-cols-4 gap-4">
                 <div className="text-center">
-                  <div className="bg-white text-red-600 text-2xl font-bold py-3 px-2 rounded-lg">
+                  <div className="bg-white text-emerald-700 text-2xl font-bold py-3 px-2 rounded-lg">
                     {timeLeft.days.toString().padStart(2, '0')}
                   </div>
                   <div className="text-sm mt-2">يوم</div>
                 </div>
                 <div className="text-center">
-                  <div className="bg-white text-red-600 text-2xl font-bold py-3 px-2 rounded-lg">
+                  <div className="bg-white text-emerald-700 text-2xl font-bold py-3 px-2 rounded-lg">
                     {timeLeft.hours.toString().padStart(2, '0')}
                   </div>
                   <div className="text-sm mt-2">ساعة</div>
                 </div>
                 <div className="text-center">
-                  <div className="bg-white text-red-600 text-2xl font-bold py-3 px-2 rounded-lg">
+                  <div className="bg-white text-emerald-700 text-2xl font-bold py-3 px-2 rounded-lg">
                     {timeLeft.minutes.toString().padStart(2, '0')}
                   </div>
                   <div className="text-sm mt-2">دقيقة</div>
                 </div>
                 <div className="text-center">
-                  <div className="bg-white text-red-600 text-2xl font-bold py-3 px-2 rounded-lg">
+                  <div className="bg-white text-emerald-700 text-2xl font-bold py-3 px-2 rounded-lg">
                     {timeLeft.seconds.toString().padStart(2, '0')}
                   </div>
                   <div className="text-sm mt-2">ثانية</div>
@@ -553,7 +771,7 @@ const Offers = () => {
         {flashDeals.length > 0 && (
           <section className="mb-16">
             <div className="flex items-center gap-3 mb-8">
-              <div className="bg-red-500 p-3 rounded-full">
+              <div className="bg-emerald-500 p-3 rounded-full">
                 <Zap className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -562,7 +780,7 @@ const Offers = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {flashDeals.map(offer => (
                 <FlashDealCard key={offer.id} offer={offer} />
               ))}
@@ -574,7 +792,7 @@ const Offers = () => {
         {weeklyDeals.length > 0 && (
           <section className="mb-16">
             <div className="flex items-center gap-3 mb-8">
-              <div className="bg-emerald-500 p-3 rounded-full">
+              <div className="bg-emerald-400 p-3 rounded-full">
                 <Percent className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -583,7 +801,7 @@ const Offers = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
               {weeklyDeals.map(offer => (
                 <ProductCard key={offer.id} offer={offer} />
               ))}
@@ -595,7 +813,7 @@ const Offers = () => {
         {bundleOffers.length > 0 && (
           <section className="mb-16">
             <div className="flex items-center gap-3 mb-8">
-              <div className="bg-purple-500 p-3 rounded-full">
+              <div className="bg-emerald-500 p-3 rounded-full">
                 <Gift className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -619,19 +837,32 @@ const Offers = () => {
         )}
 
         {/* Newsletter Signup */}
-        <section className="bg-gradient-to-r from-emerald-600 to-purple-600 rounded-2xl p-8 text-white text-center">
+        <section className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl p-8 text-white text-center">
           <h2 className="text-2xl font-bold mb-4">لا تفوت العروض القادمة!</h2>
           <p className="text-emerald-100 mb-6">اشترك في نشرتنا البريدية لتصلك أحدث العروض والخصومات</p>
-          <div className="max-w-md mx-auto flex gap-4">
-            <input
-              type="email"
-              placeholder="أدخل بريدك الإلكتروني"
-              className="flex-1 px-4 py-3 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-white"
-            />
-            <button className="bg-white text-emerald-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors">
-              اشتراك
-            </button>
-          </div>
+          <form onSubmit={handleNewsletterSubscribe} className="max-w-md mx-auto">
+            <div className="flex gap-4">
+              <input
+                type="email"
+                value={newsletterEmail}
+                onChange={(e) => setNewsletterEmail(e.target.value)}
+                placeholder="أدخل بريدك الإلكتروني"
+                className="flex-1 px-4 py-3 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-white"
+              />
+              <button
+                type="submit"
+                disabled={newsletterLoading}
+                className="bg-white text-emerald-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors disabled:opacity-60"
+              >
+                {newsletterLoading ? "جاري..." : "اشتراك"}
+              </button>
+            </div>
+            {newsletterMessage && (
+              <p className={`mt-3 text-sm ${newsletterMessageType === "success" ? "text-white" : "text-rose-100"}`}>
+                {newsletterMessage}
+              </p>
+            )}
+          </form>
         </section>
       </div>
     </div>

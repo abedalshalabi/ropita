@@ -7,6 +7,7 @@ import NotFound from "./pages/NotFound";
 import CategoryPlaceholder from "./pages/CategoryPlaceholder";
 import Products from "./pages/Products";
 import Cart from "./pages/Cart";
+import Wishlist from "./pages/Wishlist";
 import Checkout from "./pages/Checkout";
 import OrderSuccess from "./pages/OrderSuccess";
 import AdminLogin from "./pages/AdminLogin";
@@ -33,12 +34,15 @@ import AdminUserView from "./pages/AdminUserView";
 import AdminSiteSettings from "./pages/AdminSiteSettings";
 import AdminOffers from "./pages/AdminOffers";
 import AdminContactMessages from "./pages/AdminContactMessages";
+import AdminNewsletterSubscribers from "./pages/AdminNewsletterSubscribers";
 import AdminCities from "./pages/AdminCities";
 import AdminSlider from "./pages/AdminSlider";
 import AdminFilters from "./pages/AdminFilters";
 import AdminCustomers from "./pages/AdminCustomers";
 import AdminCustomerView from "./pages/AdminCustomerView";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import About from "./pages/About";
@@ -51,10 +55,13 @@ import CategoriesPage from "./pages/Categories";
 import BrandsPage from "./pages/Brands";
 import Product from "./pages/Product";
 import VisitorCounter from "./components/VisitorCounter";
+import WhatsAppFloating from "./components/WhatsAppFloating";
 import { CartProvider } from "./context/CartContext";
 import { AnimationProvider } from "./context/AnimationContext";
 import { AuthProvider } from "./context/AuthContext";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext";
+import { WishlistProvider } from "./context/WishlistContext";
+import { Toaster } from "./components/ui/toaster";
 
 const PixelTracker = () => {
   const location = useLocation();
@@ -78,16 +85,27 @@ const VisitorCounterWrapper = () => {
   return <VisitorCounter />;
 };
 
+const WhatsAppFloatingWrapper = () => {
+  const location = useLocation();
+  const isAdmin = location.pathname.startsWith('/admin');
+
+  if (isAdmin) return null;
+  return <WhatsAppFloating />;
+};
+
 function App() {
   return (
     <SiteSettingsProvider>
       <AuthProvider>
-        <CartProvider>
-          <AnimationProvider>
+        <WishlistProvider>
+          <CartProvider>
+            <AnimationProvider>
             <BrowserRouter basename={BASE_PATH}>
-            <PixelTracker />
-            <VisitorCounterWrapper />
-            <Routes>
+              <PixelTracker />
+              <VisitorCounterWrapper />
+              <WhatsAppFloatingWrapper />
+              <Toaster />
+              <Routes>
               <Route path="/" element={<Index />} />
 
               {/* Category Routes - All redirect to Products page with category filter */}
@@ -138,6 +156,10 @@ function App() {
                 element={<Products />}
               />
               <Route
+                path="/wishlist"
+                element={<Wishlist />}
+              />
+              <Route
                 path="/product/:id"
                 element={<Product />}
               />
@@ -156,6 +178,14 @@ function App() {
               <Route
                 path="/login"
                 element={<Login />}
+              />
+              <Route
+                path="/forgot-password"
+                element={<ForgotPassword />}
+              />
+              <Route
+                path="/reset-password"
+                element={<ResetPassword />}
               />
               <Route
                 path="/register"
@@ -217,6 +247,7 @@ function App() {
               <Route path="/admin/site-settings" element={<AdminSiteSettings />} />
               <Route path="/admin/offers" element={<AdminOffers />} />
               <Route path="/admin/contact-messages" element={<AdminContactMessages />} />
+              <Route path="/admin/newsletter-subscribers" element={<AdminNewsletterSubscribers />} />
               <Route path="/admin/cities" element={<AdminCities />} />
               <Route path="/admin/slider" element={<AdminSlider />} />
               <Route path="/admin/filters" element={<AdminFilters />} />
@@ -225,10 +256,11 @@ function App() {
 
               {/* Catch-all route */}
               <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-          </AnimationProvider>
-        </CartProvider>
+              </Routes>
+            </BrowserRouter>
+            </AnimationProvider>
+          </CartProvider>
+        </WishlistProvider>
       </AuthProvider>
     </SiteSettingsProvider>
   );

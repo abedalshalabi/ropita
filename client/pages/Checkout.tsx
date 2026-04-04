@@ -85,8 +85,9 @@ const Checkout = () => {
 
   // Calculate subtotal from items to ensure accuracy
   const subtotal = state.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const shippingCost = selectedCity ? Number(selectedCity.shipping_cost) : (subtotal > 500 ? 0 : 25);
-  const finalTotal = Number(subtotal) + Number(shippingCost);
+  const shippingCost = selectedCity ? Number(selectedCity.shipping_cost) : null;
+  const finalTotal = Number(subtotal) + Number(shippingCost ?? 0);
+  const canSubmitOrder = !isSubmitting && !!selectedCity;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -97,6 +98,10 @@ const Checkout = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedCity) {
+      alert("يرجى اختيار المدينة لحساب تكلفة الشحن قبل تأكيد الطلب.");
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -363,13 +368,20 @@ const Checkout = () => {
                 <div className="space-y-6 mb-8">
                   {state.items.map((item) => (
                     <div key={`${item.id}-${item.variant_id || ''}`} className="flex gap-4 p-4 bg-gray-50 rounded-xl relative border border-gray-100">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-20 h-20 object-cover rounded-lg bg-white border border-gray-100"
-                      />
+                      <Link to={`/product/${item.id}`} className="shrink-0">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-20 h-20 object-cover rounded-lg bg-white border border-gray-100 hover:opacity-90 transition-opacity"
+                        />
+                      </Link>
                       <div className="flex-1">
-                        <div className="font-bold text-gray-900 mb-1">{item.name}</div>
+                        <Link
+                          to={`/product/${item.id}`}
+                          className="font-bold text-gray-900 mb-1 hover:text-brand-blue transition-colors inline-block"
+                        >
+                          {item.name}
+                        </Link>
                         {item.selected_options && Object.keys(item.selected_options).length > 0 && (
                           <div className="text-xs text-gray-500 mb-2 flex flex-wrap gap-2">
                             {Object.entries(item.selected_options).map(([k, v]) => (
@@ -409,7 +421,7 @@ const Checkout = () => {
                   <div className="flex justify-between items-center py-2">
                     <span className="text-base font-medium text-gray-700">الشحن</span>
                     <span className={`text-base font-semibold ${shippingCost === 0 ? "text-green-600" : "text-gray-900"}`}>
-                      {shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`}
+                      {shippingCost === null ? "يتم احتسابه عند اختيار المدينة" : (shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`)}
                     </span>
                   </div>
                   <div className="border-t-2 border-gray-300 pt-4 mt-4 flex justify-between items-center">
@@ -421,10 +433,10 @@ const Checkout = () => {
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={!canSubmitOrder}
                   className="w-full bg-brand-blue text-white py-3 rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? "جاري إتمام الطلب..." : "تأكيد الطلب"}
+                  {isSubmitting ? "جاري إتمام الطلب..." : (selectedCity ? "تأكيد الطلب" : "اختر المدينة أولاً")}
                 </button>
 
                 {/* Security Notice */}

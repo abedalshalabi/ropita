@@ -55,6 +55,10 @@ interface Product {
     id: number;
     name: string;
   };
+  categories?: Array<{
+    id: number;
+    name: string;
+  }>;
   brand?: {
     id: number;
     name: string;
@@ -66,6 +70,10 @@ interface Product {
     alt_text?: string;
     is_primary: boolean;
     sort_order: number;
+  }>;
+  variants?: Array<{
+    id: number;
+    price?: number | string | null;
   }>;
   sales_count: number;
   rating: number;
@@ -260,6 +268,29 @@ const AdminProducts = () => {
     }
   };
 
+  const handleBulkStatusUpdate = async (isActive: boolean) => {
+    if (selectedProducts.length === 0) return;
+
+    const actionText = isActive ? "تفعيل" : "تعطيل";
+
+    if (window.confirm(`هل أنت متأكد من ${actionText} ${selectedProducts.length} منتج؟`)) {
+      try {
+        await adminProductsAPI.bulkUpdateStatus(selectedProducts, isActive);
+        await fetchProducts();
+        setSelectedProducts([]);
+
+        Swal.fire({
+          icon: 'success',
+          title: 'تم بنجاح',
+          text: `تم ${actionText} المنتجات المحددة`,
+          confirmButtonText: 'حسناً'
+        });
+      } catch (err: any) {
+        setError(err.response?.data?.message || `فشل في ${actionText} المنتجات`);
+      }
+    }
+  };
+
   const handleBulkApplyDiscount = async () => {
     if (selectedProducts.length === 0) return;
     if (bulkDiscountPercentage < 0 || bulkDiscountPercentage > 100) {
@@ -336,6 +367,127 @@ const AdminProducts = () => {
     setSearchInput("");
     setCurrentPage(1);
     setProducts([]);
+  };
+
+  const getDiscountInfo = (product: Product) => {
+    const basePrice = Number(product.price || 0);
+    const comparePrice = Number(product.compare_price || 0);
+    const originalPrice = Number(product.original_price || 0);
+    const savedDiscountPercentage = Number(product.discount_percentage || 0);
+    const referencePrice = comparePrice > basePrice ? comparePrice : originalPrice > basePrice ? originalPrice : 0;
+    const variantPrices = Array.isArray(product.variants)
+      ? product.variants
+          .map((variant) => Number(variant.price || 0))
+          .filter((price) => price > 0)
+      : [];
+
+    if (savedDiscountPercentage > 0) {
+      if (variantPrices.length > 0) {
+        const minVariantPrice = Math.min(...variantPrices);
+        const maxVariantPrice = Math.max(...variantPrices);
+        const minDiscountValue = (minVariantPrice * savedDiscountPercentage) / 100;
+        const maxDiscountValue = (maxVariantPrice * savedDiscountPercentage) / 100;
+
+        return {
+          hasDiscount: true,
+          discountPercentage: savedDiscountPercentage,
+          discountValue: minDiscountValue,
+          discountValueMax: maxDiscountValue,
+          discountValueLabel:
+            minDiscountValue === maxDiscountValue
+              ? formatPrice(minDiscountValue)
+              : `من ${formatPrice(minDiscountValue)} إلى ${formatPrice(maxDiscountValue)}`,
+          referencePrice: referencePrice || basePrice,
+        };
+      }
+
+      return {
+        hasDiscount: true,
+        discountPercentage: savedDiscountPercentage,
+        discountValue: basePrice > 0 ? (basePrice * savedDiscountPercentage) / 100 : 0,
+        discountValueMax: basePrice > 0 ? (basePrice * savedDiscountPercentage) / 100 : 0,
+        discountValueLabel: formatPrice(basePrice > 0 ? (basePrice * savedDiscountPercentage) / 100 : 0),
+        referencePrice: referencePrice || basePrice,
+      };
+    }
+
+    if (referencePrice > basePrice && referencePrice > 0) {
+      return {
+        hasDiscount: true,
+        discountPercentage: Math.round(((referencePrice - basePrice) / referencePrice) * 100),
+        discountValue: referencePrice - basePrice,
+        discountValueMax: referencePrice - basePrice,
+        discountValueLabel: formatPrice(referencePrice - basePrice),
+        referencePrice,
+      };
+    }
+
+    return {
+      hasDiscount: false,
+      discountPercentage: 0,
+      discountValue: 0,
+      discountValueMax: 0,
+      discountValueLabel: "0",
+      referencePrice: 0,
+    };
+  };
+
+  const getPriceInfo = (product: Product) => {
+    const basePrice = Number(product.price || 0);
+    const comparePrice = Number(product.compare_price || 0);
+    const originalPrice = Number(product.original_price || 0);
+    const savedDiscountPercentage = Number(product.discount_percentage || 0);
+    const variantPrices = Array.isArray(product.variants)
+      ? product.variants
+          .map((variant) => Number(variant.price || 0))
+          .filter((price) => price > 0)
+      : [];
+
+    if (variantPrices.length > 0) {
+      const minBasePrice = Math.min(...variantPrices);
+      const maxBasePrice = Math.max(...variantPrices);
+      const minPrice = savedDiscountPercentage > 0
+        ? minBasePrice * (1 - savedDiscountPercentage / 100)
+        : minBasePrice;
+      const maxPrice = savedDiscountPercentage > 0
+        ? maxBasePrice * (1 - savedDiscountPercentage / 100)
+        : maxBasePrice;
+
+      return {
+        hasVariantPricing: true,
+        minPrice,
+        maxPrice,
+        priceLabel:
+          minPrice === maxPrice
+            ? formatPrice(minPrice)
+            : `من ${formatPrice(minPrice)} إلى ${formatPrice(maxPrice)}`,
+        referencePriceLabel:
+          savedDiscountPercentage > 0
+            ? (
+              minBasePrice === maxBasePrice
+                ? formatPrice(minBasePrice)
+                : `من ${formatPrice(minBasePrice)} إلى ${formatPrice(maxBasePrice)}`
+            )
+            : null,
+      };
+    }
+
+    const referencePrice = comparePrice > basePrice ? comparePrice : originalPrice > basePrice ? originalPrice : 0;
+    const finalPrice = savedDiscountPercentage > 0
+      ? basePrice * (1 - savedDiscountPercentage / 100)
+      : basePrice;
+
+    return {
+      hasVariantPricing: false,
+      minPrice: finalPrice,
+      maxPrice: finalPrice,
+      priceLabel: formatPrice(finalPrice),
+      referencePriceLabel: savedDiscountPercentage > 0
+        ? formatPrice(basePrice)
+        : referencePrice > basePrice
+          ? formatPrice(referencePrice)
+          : null,
+    };
   };
 
   const refreshProducts = async () => {
@@ -788,6 +940,20 @@ const AdminProducts = () => {
                 </span>
                 <div className="flex items-center space-x-2 space-x-reverse">
                   <button
+                    onClick={() => handleBulkStatusUpdate(true)}
+                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center"
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    تفعيل المحدد
+                  </button>
+                  <button
+                    onClick={() => handleBulkStatusUpdate(false)}
+                    className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 flex items-center"
+                  >
+                    <Clock className="w-4 h-4 mr-2" />
+                    تعطيل المحدد
+                  </button>
+                  <button
                     onClick={handleBulkDelete}
                     className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center"
                   >
@@ -922,7 +1088,7 @@ const AdminProducts = () => {
                             المشاهدات
                           </th>
                           <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            التقييم
+                            الخصم
                           </th>
                           <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                             الحالة
@@ -935,10 +1101,8 @@ const AdminProducts = () => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {products.map((product) => {
                           const stockStatus = getStockStatus(product);
-                          const hasDiscount = product.compare_price && product.compare_price > product.price;
-                          const discountPercentage = hasDiscount
-                            ? Math.round(((product.compare_price! - product.price) / product.compare_price!) * 100)
-                            : 0;
+                          const { hasDiscount, discountPercentage, discountValueLabel } = getDiscountInfo(product);
+                          const { hasVariantPricing, priceLabel, referencePriceLabel } = getPriceInfo(product);
 
                           return (
                             <tr key={product.id} className="hover:bg-gray-50">
@@ -1005,10 +1169,27 @@ const AdminProducts = () => {
                               {/* Stock */}
 
                               {/* Category */}
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                  {product.category?.name || 'غير محدد'}
-                                </span>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-wrap gap-1">
+                                  {(product.categories && product.categories.length > 0
+                                    ? product.categories
+                                    : product.category
+                                      ? [product.category]
+                                      : []
+                                  ).map((category) => (
+                                    <span
+                                      key={category.id}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"
+                                    >
+                                      {category.name}
+                                    </span>
+                                  ))}
+                                  {(!product.categories || product.categories.length === 0) && !product.category && (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                                      غير محدد
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               {/* Price */}
@@ -1076,11 +1257,11 @@ const AdminProducts = () => {
                                 ) : (
                                   <div className="group relative">
                                     <div className="text-sm font-medium text-gray-900">
-                                      {formatPrice(product.price)}
+                                      {priceLabel}
                                     </div>
-                                    {product.compare_price && (
+                                    {referencePriceLabel && (
                                       <div className="text-sm text-gray-500 line-through">
-                                        {formatPrice(product.compare_price)}
+                                        {referencePriceLabel}
                                       </div>
                                     )}
                                     <button
@@ -1126,17 +1307,20 @@ const AdminProducts = () => {
                                 </div>
                               </td>
 
-                              {/* Rating */}
+                              {/* Discount */}
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center">
-                                  <Star className="w-4 h-4 text-yellow-400 fill-current ml-1" />
-                                  <span className="text-sm font-medium text-gray-900">
-                                    {typeof product.rating === 'number' ? product.rating.toFixed(1) : '0.0'}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  ({product.reviews_count} تقييم)
-                                </div>
+                                {hasDiscount ? (
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 w-fit">
+                                      {discountPercentage}%
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      خصم {discountValueLabel}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-gray-400">لا يوجد</span>
+                                )}
                               </td>
 
                               {/* Status */}
@@ -1207,10 +1391,8 @@ const AdminProducts = () => {
                   }`}>
                   {products.map((product) => {
                     const stockStatus = getStockStatus(product);
-                    const hasDiscount = product.original_price && product.original_price > product.price;
-                    const discountPercentage = hasDiscount
-                      ? Math.round(((product.original_price! - product.price) / product.original_price!) * 100)
-                      : 0;
+                    const { hasDiscount, discountPercentage, discountValueLabel } = getDiscountInfo(product);
+                    const { priceLabel, referencePriceLabel } = getPriceInfo(product);
 
                     return (
                       <div
@@ -1305,18 +1487,18 @@ const AdminProducts = () => {
                               <span className="text-sm text-gray-600">السعر:</span>
                               <div className="flex items-center space-x-2 space-x-reverse">
                                 <span className="font-bold text-lg text-gray-900">
-                                  {formatPrice(product.price)}
+                                  {priceLabel}
                                 </span>
-                                {hasDiscount && (
+                                {referencePriceLabel && (
                                   <span className="text-sm text-gray-500 line-through">
-                                    {formatPrice(product.original_price!)}
+                                    {referencePriceLabel}
                                   </span>
                                 )}
                               </div>
                             </div>
                             {hasDiscount && (
                               <div className="text-xs text-red-600 font-medium">
-                                وفرت {formatPrice(product.original_price! - product.price)}
+                                وفرت {discountValueLabel}
                               </div>
                             )}
                           </div>

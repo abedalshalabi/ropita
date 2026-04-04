@@ -79,6 +79,9 @@ const AdminProductCreate: React.FC = () => {
   const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [sizeGuideFiles, setSizeGuideFiles] = useState<File[]>([]);
+  const [sizeGuidePreviews, setSizeGuidePreviews] = useState<string[]>([]);
+  const [sizeGuideUrlsText, setSizeGuideUrlsText] = useState('');
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
 
@@ -102,8 +105,10 @@ const AdminProductCreate: React.FC = () => {
     warranty: '',
     delivery_time: '',
     images: [] as Array<string | { image_url: string; alt_text?: string; is_primary?: boolean; sort_order?: number }>,
+    size_guide_images: [] as Array<string | { image_url: string; image_path?: string }>,
     is_active: true,
     is_featured: false,
+    show_in_offers: false,
     sort_order: 0,
     rating: 0,
     reviews_count: 0,
@@ -118,7 +123,9 @@ const AdminProductCreate: React.FC = () => {
     specifications: {} as Record<string, string>,
     filter_values: {} as Record<string, string[]>,
     variants: [] as Variant[],
-    cover_image: ''
+    cover_image: '',
+    show_description: true,
+    show_specifications: true
   });
 
   useEffect(() => {
@@ -398,6 +405,64 @@ const AdminProductCreate: React.FC = () => {
     });
   };
 
+  const parseUrlLines = (value: string): string[] =>
+    value
+      .split(/[\n,]/)
+      .map((img) => img.trim())
+      .filter((img) => img.length > 0 && (img.startsWith('http://') || img.startsWith('https://')));
+
+  const handleSizeGuideImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setSizeGuideFiles((prev) => [...prev, ...files]);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (!result) return;
+        setSizeGuidePreviews((prev) => [...prev, result]);
+        setFormData((prev) => ({
+          ...prev,
+          size_guide_images: [...prev.size_guide_images, result],
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemoveSizeGuideImage = (index: number) => {
+    setSizeGuidePreviews((prev) => prev.filter((_, i) => i !== index));
+    setSizeGuideFiles((prev) => prev.filter((_, i) => i !== index));
+    setFormData((prev) => {
+      const dataUrls = prev.size_guide_images.filter(
+        (img): img is string => typeof img === 'string' && img.startsWith('data:')
+      );
+      const regularUrls = prev.size_guide_images.filter(
+        (img): img is string => typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://'))
+      );
+      return {
+        ...prev,
+        size_guide_images: [...dataUrls.filter((_, i) => i !== index), ...regularUrls],
+      };
+    });
+  };
+
+  const handleSizeGuideUrlsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setSizeGuideUrlsText(value);
+    const urlImages = parseUrlLines(value);
+    setFormData((prev) => {
+      const dataUrls = prev.size_guide_images.filter(
+        (img): img is string => typeof img === 'string' && img.startsWith('data:')
+      );
+      return {
+        ...prev,
+        size_guide_images: [...dataUrls, ...urlImages],
+      };
+    });
+  };
+
   const handleFeaturesChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = e.target.value;
     const features = value.split(',').map(feature => feature.trim()).filter(feature => feature);
@@ -571,13 +636,17 @@ const AdminProductCreate: React.FC = () => {
         manage_stock: formData.manage_stock,
         in_stock: formData.in_stock,
         is_active: formData.is_active,
-        is_featured: formData.is_featured
+        is_featured: formData.is_featured,
+        show_in_offers: formData.show_in_offers
       });
 
       uploadFormData.append('manage_stock', boolToString(formData.manage_stock));
       uploadFormData.append('in_stock', boolToString(formData.in_stock));
       uploadFormData.append('is_active', boolToString(formData.is_active));
       uploadFormData.append('is_featured', boolToString(formData.is_featured));
+      uploadFormData.append('show_in_offers', boolToString(formData.show_in_offers));
+      uploadFormData.append('show_description', boolToString(formData.show_description));
+      uploadFormData.append('show_specifications', boolToString(formData.show_specifications));
 
       // Convert array/object fields to JSON strings
       uploadFormData.append('features', JSON.stringify(formData.features));
@@ -635,6 +704,19 @@ const AdminProductCreate: React.FC = () => {
         console.log('FormData after adding images:', Array.from(uploadFormData.entries()).filter(([key]) => key.startsWith('images')));
       } else {
         console.log('No new image files to upload');
+      }
+
+      // Handle size guide images
+      const sizeGuideImageUrls = formData.size_guide_images.filter(
+        (img) => typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://'))
+      );
+      if (sizeGuideImageUrls.length > 0) {
+        uploadFormData.append('size_guide_image_urls', JSON.stringify(sizeGuideImageUrls));
+      }
+      if (sizeGuideFiles.length > 0) {
+        sizeGuideFiles.forEach((file, index) => {
+          uploadFormData.append(`size_guide_images[${index}]`, file);
+        });
       }
 
       console.log('Sending create request with FormData...');
@@ -1416,6 +1498,105 @@ const AdminProductCreate: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Size Guide Images */}
+                <div className="space-y-2 md:col-span-2 border rounded-lg p-4 bg-gray-50/50">
+                  <Label className="text-base font-bold">دليل المقاسات</Label>
+                  <p className="text-sm text-gray-600">
+                    ارفع صورة واحدة أو عدة صور لدليل المقاسات. ستظهر في صفحة المنتج داخل نافذة منبثقة مع تمرير عمودي.
+                  </p>
+
+                  {formData.size_guide_images.filter((img) => typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://'))).length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">صور الدليل عبر الروابط:</Label>
+                      <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {formData.size_guide_images
+                          .filter((img) => typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://')))
+                          .map((imageUrl, index) => (
+                            <div key={`size-guide-url-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
+                              <img
+                                src={imageUrl as string}
+                                alt={`دليل المقاسات ${index + 1}`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = '/placeholder.svg';
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const dataUrls = formData.size_guide_images.filter((img) => typeof img === 'string' && img.startsWith('data:'));
+                                  const regularUrls = formData.size_guide_images.filter((img) => typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://')));
+                                  const updatedUrls = regularUrls.filter((_, i) => i !== index);
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    size_guide_images: [...dataUrls, ...updatedUrls],
+                                  }));
+                                }}
+                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {sizeGuidePreviews.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium text-gray-700">صور الدليل المرفوعة:</Label>
+                      <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {sizeGuidePreviews.map((preview, index) => (
+                          <div key={`size-guide-new-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
+                            <img src={preview} alt={`Size guide ${index + 1}`} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSizeGuideImage(index)}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Input
+                      id="size_guide_images"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleSizeGuideImageChange}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('size_guide_images')?.click()}
+                      className="flex items-center space-x-2 rtl:space-x-reverse"
+                    >
+                      <Upload className="h-4 w-4" />
+                      <span>إضافة صور دليل المقاسات</span>
+                    </Button>
+
+                    <div>
+                      <Label htmlFor="size_guide_urls" className="text-sm text-gray-500">
+                        أو أدخل روابط صور دليل المقاسات (كل رابط بسطر أو مفصول بفاصلة):
+                      </Label>
+                      <Textarea
+                        id="size_guide_urls"
+                        value={sizeGuideUrlsText}
+                        onChange={handleSizeGuideUrlsChange}
+                        rows={3}
+                        placeholder={"https://example.com/size-guide-1.jpg\nhttps://example.com/size-guide-2.jpg"}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Features */}
                 <div className="space-y-4 md:col-span-2">
                   <div>
@@ -1933,6 +2114,48 @@ const AdminProductCreate: React.FC = () => {
                       id="is_featured"
                       checked={formData.is_featured}
                       onCheckedChange={(checked) => handleSwitchChange('is_featured', checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="show_in_offers">إظهار في صفحة العروض</Label>
+                  <div className="flex items-center justify-between" dir="ltr">
+                    <span className="text-sm text-gray-600">
+                      {formData.show_in_offers ? 'مُضاف للعروض' : 'عادي'}
+                    </span>
+                    <Switch
+                      id="show_in_offers"
+                      checked={formData.show_in_offers}
+                      onCheckedChange={(checked) => handleSwitchChange('show_in_offers', checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="show_description">إظهار تاب الوصف</Label>
+                  <div className="flex items-center justify-between" dir="ltr">
+                    <span className="text-sm text-gray-600">
+                      {formData.show_description ? 'ظاهر' : 'مخفي'}
+                    </span>
+                    <Switch
+                      id="show_description"
+                      checked={formData.show_description}
+                      onCheckedChange={(checked) => handleSwitchChange('show_description', checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="show_specifications">إظهار تاب المواصفات</Label>
+                  <div className="flex items-center justify-between" dir="ltr">
+                    <span className="text-sm text-gray-600">
+                      {formData.show_specifications ? 'ظاهر' : 'مخفي'}
+                    </span>
+                    <Switch
+                      id="show_specifications"
+                      checked={formData.show_specifications}
+                      onCheckedChange={(checked) => handleSwitchChange('show_specifications', checked)}
                     />
                   </div>
                 </div>

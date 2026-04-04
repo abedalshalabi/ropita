@@ -3,22 +3,21 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Search,
   Filter,
-  Grid,
-  List,
-  Star,
   Heart,
   Eye,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  X
 } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAnimation } from "../context/AnimationContext";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
-import { productsAPI, categoriesAPI, brandsAPI, wishlistAPI, settingsAPI } from "../services/api";
+import { productsAPI, categoriesAPI, brandsAPI, settingsAPI } from "../services/api";
 import { STORAGE_BASE_URL, getStorageUrl } from "../config/env";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { useWishlist } from "../context/WishlistContext";
 
 interface Product {
   id: number;
@@ -67,9 +66,98 @@ const formatPrice = (price: number | string): string => {
   }
 };
 
+const colorNameToHex: Record<string, string> = {
+  "احمر": "#ef4444",
+  "أحمر": "#ef4444",
+  "ازرق": "#3b82f6",
+  "أزرق": "#3b82f6",
+  "اخضر": "#22c55e",
+  "أخضر": "#22c55e",
+  "اصفر": "#eab308",
+  "أصفر": "#eab308",
+  "برتقالي": "#f97316",
+  "بنفسجي": "#a855f7",
+  "وردي": "#ec4899",
+  "زهري": "#ec4899",
+  "اسود": "#111827",
+  "أسود": "#111827",
+  "ابيض": "#ffffff",
+  "أبيض": "#ffffff",
+  "رمادي": "#9ca3af",
+  "بني": "#92400e",
+  "كحلي": "#1e3a8a",
+  "beige": "#d6c3a5",
+  "black": "#111827",
+  "white": "#ffffff",
+  "red": "#ef4444",
+  "blue": "#3b82f6",
+  "green": "#22c55e",
+  "yellow": "#eab308",
+  "orange": "#f97316",
+  "purple": "#a855f7",
+  "pink": "#ec4899",
+  "gray": "#9ca3af",
+  "grey": "#9ca3af",
+  "brown": "#92400e",
+  "navy": "#1e3a8a",
+};
+
+const normalizeColorLabel = (value: string): string =>
+  value.trim().replace(/\s+/g, " ");
+
+const isHexColor = (value: string): boolean =>
+  /^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(value.trim());
+
+const resolveColorHex = (label: string): string | null => {
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  if (isHexColor(trimmed)) return trimmed;
+  return colorNameToHex[trimmed.toLowerCase()] || null;
+};
+
+const extractAvailableColors = (filterValues?: Record<string, any>): string[] => {
+  if (!filterValues || typeof filterValues !== "object") {
+    return [];
+  }
+
+  const colors = new Set<string>();
+  Object.entries(filterValues).forEach(([key, rawValue]) => {
+    const normalizedKey = key.toLowerCase();
+    const compactKey = normalizedKey.replace(/\s+/g, "");
+    const isColorKey =
+      compactKey.includes("لون") ||
+      compactKey.includes("الوان") ||
+      compactKey.includes("ألوان") ||
+      compactKey.includes("الالوان") ||
+      compactKey.includes("color") ||
+      compactKey.includes("colors");
+
+    if (!isColorKey) {
+      return;
+    }
+
+    const valuesArray = Array.isArray(rawValue)
+      ? rawValue
+      : typeof rawValue === "string"
+        ? rawValue.split(",")
+        : [];
+
+    valuesArray.forEach((item) => {
+      if (typeof item !== "string") return;
+      const normalized = normalizeColorLabel(item);
+      if (normalized) {
+        colors.add(normalized);
+      }
+    });
+  });
+
+  return Array.from(colors);
+};
+
 const Products = () => {
   const { addItem } = useCart();
   const { triggerAnimation } = useAnimation();
+  const { wishlistProcessing, toggleWishlist, isWishlisted } = useWishlist();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,7 +165,6 @@ const Products = () => {
   const [selectedBrand, setSelectedBrand] = useState("الكل");
   const [priceRange, setPriceRange] = useState([0, 50000]);
   const [sortBy, setSortBy] = useState("default");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showFilters, setShowFilters] = useState(false);
   const [collapsedFilters, setCollapsedFilters] = useState<Record<string, boolean>>({});
 
@@ -93,8 +180,6 @@ const Products = () => {
   const [brands, setBrands] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [wishlistIds, setWishlistIds] = useState<number[]>([]);
-  const [wishlistProcessing, setWishlistProcessing] = useState<Record<number, boolean>>({});
   const [showProductViews, setShowProductViews] = useState(true);
 
   const selectedParentCategory = useMemo(() => {
@@ -269,8 +354,8 @@ const Products = () => {
       if (category.has_children) {
         // Has subcategories - load them
         await loadSubcategories(categoryId);
-      } 
-      
+      }
+
       // Always load filters directly for this category, so general filters show up
       await loadCategoryFilters(categoryId);
     }
@@ -324,31 +409,6 @@ const Products = () => {
 
     loadData();
   }, [flattenCategories]);
-
-  // Load wishlist
-  useEffect(() => {
-    const loadWishlist = async () => {
-      try {
-        const response = await wishlistAPI.getWishlist();
-        const idsFromResponse = Array.isArray(response?.ids)
-          ? response.ids
-          : Array.isArray(response?.data)
-            ? response.data
-              .map((item: any) =>
-                typeof item === "number"
-                  ? item
-                  : item?.id ?? item?.product_id ?? item?.product?.id ?? null
-              )
-              .filter((id: number | null) => typeof id === "number")
-            : [];
-        setWishlistIds(idsFromResponse.map((id: number) => Number(id)));
-      } catch (err) {
-        console.error("Error loading wishlist:", err);
-      }
-    };
-
-    loadWishlist();
-  }, []);
 
   // Products will be loaded by the filters useEffect below
 
@@ -435,9 +495,9 @@ const Products = () => {
 
       // Handle sort
       const sortFromUrl = params.get('sort');
-      if (sortFromUrl !== null) {
+      if (sortFromUrl !== null && sortFromUrl !== sortBy) {
         setSortBy(sortFromUrl);
-      } else if (sortBy !== "default") {
+      } else if (sortFromUrl === null && sortBy !== "default") {
         setSortBy("default");
       }
     };
@@ -570,6 +630,10 @@ const Products = () => {
 
   // Load products function with pagination support
   const loadProducts = async (page: number = 1, append: boolean = false) => {
+    // If already loading and not appending, we might want to let it through but cancel the previous one
+    // For now, we'll just check if we're already loading to avoid redundant calls
+    if (loadingRef.current && !append) return;
+
     try {
       if (!append) {
         setLoading(true);
@@ -878,13 +942,13 @@ const Products = () => {
 
   // Reload products when filters change (reset to page 1)
   useEffect(() => {
-    // Debounce increased to 500ms to allow user to finish typing/clicking
+    // Debounce reduced to 300ms for better responsiveness
     const timeoutId = setTimeout(() => {
       // Don't clear products here, let loadProducts replace them to avoid layout jumps
       setCurrentPage(1);
       setHasMore(true);
       loadProducts(1, false);
-    }, 500);
+    }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery, selectedCategoryId, selectedSubcategory, selectedBrand, priceRange, sortBy, selectedFilters]);
@@ -926,36 +990,10 @@ const Products = () => {
 
   // Client-side filtering removed - now handled by backend
 
-
-  const toggleWishlist = useCallback(
-    async (product: Product) => {
-      const isInWishlist = wishlistIds.includes(product.id);
-
-      setWishlistProcessing((prev) => ({ ...prev, [product.id]: true }));
-      try {
-        if (isInWishlist) {
-          await wishlistAPI.removeFromWishlist(product.id);
-          setWishlistIds((prev) => prev.filter((id) => id !== product.id));
-        } else {
-          await wishlistAPI.addToWishlist(product.id);
-          setWishlistIds((prev) => (prev.includes(product.id) ? prev : [...prev, product.id]));
-        }
-      } catch (err) {
-        console.error("Error updating wishlist:", err);
-      } finally {
-        setWishlistProcessing((prev) => {
-          const updated = { ...prev };
-          delete updated[product.id];
-          return updated;
-        });
-      }
-    },
-    [wishlistIds]
-  );
-
   const ProductCard = ({ product }: { product: Product }) => {
-    const isInWishlist = wishlistIds.includes(product.id);
+    const isInWishlist = isWishlisted(product.id);
     const isProcessingWishlist = !!wishlistProcessing[product.id];
+    const availableColors = extractAvailableColors(product.filterValues);
 
     return (
       <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
@@ -986,7 +1024,7 @@ const Products = () => {
               e.preventDefault();
               e.stopPropagation();
               if (!isProcessingWishlist) {
-                toggleWishlist(product);
+                toggleWishlist(product.id);
               }
             }}
             className={`absolute top-1 left-1 md:top-2 md:left-2 p-1.5 md:p-2 rounded-full shadow-md transition-colors z-10 ${isInWishlist ? "bg-red-50 hover:bg-red-100" : "bg-white hover:bg-gray-50"
@@ -1008,24 +1046,39 @@ const Products = () => {
           </h3>
         </Link>
 
-        <div className="flex items-center gap-2 mb-1 md:mb-3 mt-auto">
-          <div className="flex items-center">
-            {[...Array(5)].map((_, i) => (
-              <Star
-                key={i}
-                className={`w-3 h-3 md:w-4 md:h-4 ${i < Math.floor(product.rating) ? "text-yellow-400 fill-current" : "text-gray-300"
-                  }`}
-              />
-            ))}
-          </div>
-          <span className="text-xs md:text-sm text-gray-600">({product.reviews})</span>
-          {showProductViews && (
-            <div className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 mr-auto">
-              <Eye className="w-3 h-3 md:w-3.5 md:h-3.5" />
-              <span>{product.viewsCount || 0}</span>
+        {availableColors.length > 0 && (
+          <div className="mb-2">
+            <div className="mb-1 text-[11px] font-medium text-gray-500">الألوان:</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {availableColors.slice(0, 4).map((color) => {
+                const colorHex = resolveColorHex(color);
+                return (
+                  <span
+                    key={`${product.id}-${color}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700"
+                    title={color}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 rounded-full border border-gray-300"
+                      style={{ backgroundColor: colorHex || "#e5e7eb" }}
+                    />
+                    <span>{color}</span>
+                  </span>
+                );
+              })}
+              {availableColors.length > 4 && (
+                <span className="text-[11px] text-gray-500">+{availableColors.length - 4}</span>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {showProductViews && (
+          <div className="flex items-center gap-1 mb-1 md:mb-3 mt-auto text-[10px] md:text-xs text-gray-500">
+            <Eye className="w-3 h-3 md:w-3.5 md:h-3.5" />
+            <span>{product.viewsCount || 0}</span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-2 md:mb-4">
           <span className="text-lg md:text-xl font-bold text-brand-green">
@@ -1059,9 +1112,11 @@ const Products = () => {
               name: product.name,
               price: product.price,
               original_price: product.originalPrice || product.comparePrice,
-              discount_percentage: product.discount,
+              discount_percentage: Number(product.discount) || 0,
               image: imageForAnimation,
-              brand: product.brand
+              brand: product.brand,
+              stock_quantity: (product as any).stockCount || 0,
+              manage_stock: product.stockStatus === 'stock_based'
             });
           }}
           className={`w-full py-1.5 md:py-2 rounded-lg transition-colors text-sm md:text-base font-medium shadow-sm ${product.inStock ? "bg-brand-blue text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500 cursor-not-allowed"
@@ -1287,49 +1342,70 @@ const Products = () => {
                                 <ChevronUp className="w-4 h-4 text-brand-blue" />
                               )}
                             </button>
-                            
+
                             {!isCollapsed && (
                               <div className="pt-2">
                                 {filter.type === 'select' && (
                                   <select
-                                value={selectedFilters[filter.name] || ''}
-                                onChange={(e) => {
-                                  setSelectedFilters(prev => ({
-                                    ...prev,
-                                    [filter.name]: e.target.value
-                                  }));
-                                }}
-                                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow text-sm ${filter.required
-                                  ? 'border-red-300 focus:ring-red-500'
-                                  : 'border-gray-300'
-                                  }`}
-                              >
-                                <option value="">
-                                  {filter.required ? 'اختر...' : 'الكل'}
-                                </option>
-                                {Array.isArray(filter.options) && filter.options.map((option: string) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                              </select>
-                            )}
-                            {filter.type === 'checkbox' && filter.options && filter.options.length > 0 && (
-                              <div className="space-y-2">
-                                {filter.options.map((option: string, optionIndex: number) => (
-                                  <label key={optionIndex} className="flex items-center gap-2 cursor-pointer">
+                                    value={selectedFilters[filter.name] || ''}
+                                    onChange={(e) => {
+                                      setSelectedFilters(prev => ({
+                                        ...prev,
+                                        [filter.name]: e.target.value
+                                      }));
+                                    }}
+                                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow text-sm ${filter.required
+                                      ? 'border-red-300 focus:ring-red-500'
+                                      : 'border-gray-300'
+                                      }`}
+                                  >
+                                    <option value="">
+                                      {filter.required ? 'اختر...' : 'الكل'}
+                                    </option>
+                                    {Array.isArray(filter.options) && filter.options.map((option: string) => (
+                                      <option key={option} value={option}>{option}</option>
+                                    ))}
+                                  </select>
+                                )}
+                                {filter.type === 'checkbox' && filter.options && filter.options.length > 0 && (
+                                  <div className={filter.options.length > 8 ? "grid grid-cols-2 gap-y-2" : "space-y-2"}>
+                                    {filter.options.map((option: string, optionIndex: number) => (
+                                      <label key={optionIndex} className={`flex items-center gap-2 cursor-pointer ${filter.options.length > 8 && optionIndex % 2 !== 0 ? "border-r border-gray-200 pr-3 mr-1" : ""}`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedFilters[filter.name]?.split(',').includes(option) || false}
+                                          onChange={(e) => {
+                                            const currentValues = selectedFilters[filter.name]?.split(',').filter(v => v.trim()) || [];
+                                            let newValues;
+                                            if (e.target.checked) {
+                                              newValues = [...currentValues, option].filter(v => v.trim());
+                                            } else {
+                                              newValues = currentValues.filter(v => v !== option);
+                                            }
+                                            setSelectedFilters(prev => ({
+                                              ...prev,
+                                              [filter.name]: newValues.join(',')
+                                            }));
+                                          }}
+                                          className={`rounded text-brand-blue focus:ring-brand-yellow ${filter.required
+                                            ? 'border-red-300 focus:ring-red-500'
+                                            : 'border-gray-300'
+                                            }`}
+                                        />
+                                        <span className="text-sm text-gray-700">{option}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                                {filter.type === 'checkbox' && (!filter.options || filter.options.length === 0) && (
+                                  <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                       type="checkbox"
-                                      checked={selectedFilters[filter.name]?.split(',').includes(option) || false}
+                                      checked={selectedFilters[filter.name] === 'true'}
                                       onChange={(e) => {
-                                        const currentValues = selectedFilters[filter.name]?.split(',').filter(v => v.trim()) || [];
-                                        let newValues;
-                                        if (e.target.checked) {
-                                          newValues = [...currentValues, option].filter(v => v.trim());
-                                        } else {
-                                          newValues = currentValues.filter(v => v !== option);
-                                        }
                                         setSelectedFilters(prev => ({
                                           ...prev,
-                                          [filter.name]: newValues.join(',')
+                                          [filter.name]: e.target.checked ? 'true' : ''
                                         }));
                                       }}
                                       className={`rounded text-brand-blue focus:ring-brand-yellow ${filter.required
@@ -1337,52 +1413,31 @@ const Products = () => {
                                         : 'border-gray-300'
                                         }`}
                                     />
-                                    <span className="text-sm text-gray-700">{option}</span>
+                                    <span className="text-sm text-gray-700">نعم</span>
                                   </label>
-                                ))}
-                              </div>
-                            )}
-                            {filter.type === 'checkbox' && (!filter.options || filter.options.length === 0) && (
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedFilters[filter.name] === 'true'}
-                                  onChange={(e) => {
-                                    setSelectedFilters(prev => ({
-                                      ...prev,
-                                      [filter.name]: e.target.checked ? 'true' : ''
-                                    }));
-                                  }}
-                                  className={`rounded text-brand-blue focus:ring-brand-yellow ${filter.required
-                                    ? 'border-red-300 focus:ring-red-500'
-                                    : 'border-gray-300'
-                                    }`}
-                                />
-                                <span className="text-sm text-gray-700">نعم</span>
-                              </label>
-                            )}
-                            {filter.type === 'range' && (
-                              <div className="space-y-2">
-                                <input
-                                  type="text"
-                                  value={selectedFilters[filter.name] || ''}
-                                  onChange={(e) => {
-                                    setSelectedFilters(prev => ({
-                                      ...prev,
-                                      [filter.name]: e.target.value
-                                    }));
-                                  }}
-                                  placeholder="مثال: 10-15 قدم"
-                                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 text-sm ${filter.required
-                                    ? 'border-red-300 focus:ring-red-500'
-                                    : 'border-gray-300 focus:ring-brand-yellow'
-                                    }`}
-                                />
-                                {filter.required && (
-                                  <p className="text-xs text-red-500">هذا الفلتر مطلوب</p>
                                 )}
-                              </div>
-                            )}
+                                {filter.type === 'range' && (
+                                  <div className="space-y-2">
+                                    <input
+                                      type="text"
+                                      value={selectedFilters[filter.name] || ''}
+                                      onChange={(e) => {
+                                        setSelectedFilters(prev => ({
+                                          ...prev,
+                                          [filter.name]: e.target.value
+                                        }));
+                                      }}
+                                      placeholder="مثال: 10-15 قدم"
+                                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 text-sm ${filter.required
+                                        ? 'border-red-300 focus:ring-red-500'
+                                        : 'border-gray-300 focus:ring-brand-yellow'
+                                        }`}
+                                    />
+                                    {filter.required && (
+                                      <p className="text-xs text-red-500">هذا الفلتر مطلوب</p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1469,8 +1524,9 @@ const Products = () => {
                     <div className="mt-6 pt-6 border-t border-gray-200">
                       <button
                         onClick={resetAllFilters}
-                        className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 px-4 rounded-lg transition-colors text-sm"
+                        className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-medium py-2.5 px-4 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
                       >
+                        <X className="w-4 h-4" />
                         إعادة تعيين جميع الفلاتر
                       </button>
                     </div>
@@ -1501,25 +1557,9 @@ const Products = () => {
                     <option value="default">ترتيب افتراضي</option>
                     <option value="price-low">السعر: من الأقل للأعلى</option>
                     <option value="price-high">السعر: من الأعلى للأقل</option>
-                    <option value="rating">الأعلى تقييماً</option>
                     <option value="name">الاسم</option>
                   </select>
 
-                  {/* View Mode */}
-                  <div className="flex border border-gray-300 rounded-lg overflow-hidden self-start">
-                    <button
-                      onClick={() => setViewMode("grid")}
-                      className={`p-2 ${viewMode === "grid" ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50"}`}
-                    >
-                      <Grid className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setViewMode("list")}
-                      className={`p-2 ${viewMode === "list" ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50"}`}
-                    >
-                      <List className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1546,10 +1586,7 @@ const Products = () => {
               </div>
             ) : products.length > 0 ? (
               <>
-                <div className={`grid gap-3 md:gap-6 ${viewMode === "grid"
-                  ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-                  : "grid-cols-1"
-                  }`}>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
                   {products.map(product => (
                     <ProductCard key={product.id} product={product} />
                   ))}
@@ -1638,5 +1675,3 @@ const Products = () => {
 };
 
 export default Products;
-
-

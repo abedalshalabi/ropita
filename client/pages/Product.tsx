@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Phone,
   MessageCircle,
+  Ruler,
   ChevronLeft,
   ChevronRight,
   Zap,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAnimation } from "../context/AnimationContext";
+import { useWishlist } from "../context/WishlistContext";
 import { trackEvent } from "../utils/pixel";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
@@ -55,6 +57,9 @@ interface ProductDetail {
   viewsCount: number;
   variants?: any[];
   filter_values: Record<string, string[]>;
+  show_description?: boolean;
+  show_specifications?: boolean;
+  sizeGuideImages?: string[];
 }
 
 interface BreadcrumbCategory {
@@ -159,10 +164,10 @@ const Product = () => {
   const navigate = useNavigate();
   const { addItem, updateQuantity } = useCart();
   const { triggerAnimation } = useAnimation();
+  const { isWishlisted, toggleWishlist, wishlistProcessing } = useWishlist();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
-  const [isWishlisted, setIsWishlisted] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'specifications'>('description');
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [breadcrumbCategories, setBreadcrumbCategories] = useState<{ main?: BreadcrumbCategory; sub?: BreadcrumbCategory }>({});
@@ -171,8 +176,15 @@ const Product = () => {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showProductViews, setShowProductViews] = useState(true);
+  const [showWhatsAppOrderButton, setShowWhatsAppOrderButton] = useState(true);
+  const [isSizeGuideModalOpen, setIsSizeGuideModalOpen] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const lastFetchedId = useRef<string | null>(null);
+
+  const isEnabledSetting = (value: unknown, defaultValue = true) => {
+    if (value === undefined || value === null) return defaultValue;
+    return value === "1" || value === 1 || value === "true" || value === true;
+  };
 
   const matchingVariant = useMemo(() => {
     if (!product || !product.variants || product.variants.length === 0) return null;
@@ -231,6 +243,8 @@ const Product = () => {
           : (matchingVariant ? (displayStockCount > 0 ? 'in_stock' : 'out_of_stock') : product.stockStatus)))
   ) : 'out_of_stock';
   const displaySku = product ? (matchingVariant?.sku || product.sku) : '';
+  const productIsWishlisted = product ? isWishlisted(product.id) : false;
+  const isProcessingWishlist = product ? !!wishlistProcessing[product.id] : false;
 
   useEffect(() => {
     // Inject CKEditor content styles
@@ -282,7 +296,10 @@ const Product = () => {
 
         // Set Analytics settings
         if (analyticsSettingsResponse?.data) {
-          setShowProductViews(analyticsSettingsResponse.data.show_product_views === "1" || analyticsSettingsResponse.data.show_product_views === true);
+          setShowProductViews(isEnabledSetting(analyticsSettingsResponse.data.show_product_views, true));
+          setShowWhatsAppOrderButton(
+            isEnabledSetting(analyticsSettingsResponse.data.show_product_whatsapp_order_button, true)
+          );
         }
 
         if (headerSettingsResponse?.data) {
@@ -333,6 +350,20 @@ const Product = () => {
           });
         }
 
+        const transformedSizeGuideImages: string[] = [];
+        if (apiProduct.size_guide_images && Array.isArray(apiProduct.size_guide_images)) {
+          apiProduct.size_guide_images.forEach((img: any) => {
+            if (typeof img === 'string') {
+              transformedSizeGuideImages.push(getStorageUrl(img));
+            } else if (img && typeof img === 'object') {
+              const path = img.image_url || img.image_path;
+              if (path) {
+                transformedSizeGuideImages.push(getStorageUrl(path));
+              }
+            }
+          });
+        }
+
         const basePrice = Number(apiProduct.price);
         const discountPercentage = apiProduct.discount_percentage ? Number(apiProduct.discount_percentage) : 0;
         const salePrice = discountPercentage > 0 ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2)) : basePrice;
@@ -377,11 +408,20 @@ const Product = () => {
               }
             });
             return normalized;
-          })()
+          })(),
+          show_description: apiProduct.show_description !== undefined ? Boolean(apiProduct.show_description) : true,
+          show_specifications: apiProduct.show_specifications !== undefined ? Boolean(apiProduct.show_specifications) : true,
+          sizeGuideImages: transformedSizeGuideImages,
         };
 
         if (categoriesMap.size > 0) {
           setBreadcrumbCategories(deriveBreadcrumbCategories(apiProduct, categoriesMap));
+        }
+
+        if (transformedProduct.show_description) {
+          setActiveTab('description');
+        } else if (transformedProduct.show_specifications) {
+          setActiveTab('specifications');
         }
 
         if (apiProduct.variants && apiProduct.variants.length > 0) {
@@ -437,7 +477,9 @@ const Product = () => {
         image: product.images && product.images[0] ? product.images[0] : '/placeholder.svg',
         brand: product.brand || '',
         type: 'product',
-        selected_options: matchingVariant?.variant_values
+        selected_options: matchingVariant?.variant_values,
+        stock_quantity: displayStockCount,
+        manage_stock: product.stockStatus === 'stock_based'
       });
       // Update quantity after adding
       if (quantity > 1) {
@@ -458,9 +500,9 @@ const Product = () => {
 
   const handleQuantityChange = (change: number) => {
     const newQuantity = quantity + change;
-    if (newQuantity >= 1) {
-      setQuantity(newQuantity);
-    }
+    if (newQuantity < 1) return;
+    if (product?.stockStatus === 'stock_based' && newQuantity > displayStockCount) return;
+    setQuantity(newQuantity);
   };
 
   const handleWhatsAppOrder = () => {
@@ -768,9 +810,9 @@ const Product = () => {
       </div>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 mb-12">
           {/* Product Images */}
-          <div className="space-y-4">
+          <div className="space-y-4 mt-6">
             {/* Main Image */}
             <div className="relative bg-white rounded-2xl shadow-lg overflow-hidden">
               <img
@@ -785,7 +827,7 @@ const Product = () => {
                   e.currentTarget.src = '/placeholder.svg';
                 }}
               />
-              {product.discountPercentage && product.discountPercentage > 0 && (
+              {product.discountPercentage > 0 && (
                 <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
                   خصم {product.discountPercentage}%
                 </div>
@@ -829,7 +871,7 @@ const Product = () => {
                       className="w-full h-full object-contain bg-white cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => {
                         setSelectedImage(index);
-                        setIsImageModalOpen(true);
+                        // setIsImageModalOpen(true);
                       }}
                       onError={(e) => {
                         console.error('Thumbnail image load error:', e.currentTarget.src);
@@ -900,6 +942,21 @@ const Product = () => {
                 </>
               )}
             </div>
+
+            {(product.sizeGuideImages?.length || 0) > 0 && (
+              <div className="pt-1 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setIsSizeGuideModalOpen(true)}
+                  className="w-full sm:w-auto px-3 py-1.5 rounded-lg border-2 border-gray-300 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors inline-flex items-center gap-1.5 text-sm font-semibold"
+                  aria-label="دليل المقاسات"
+                  title="دليل المقاسات"
+                >
+                  <Ruler className="w-4 h-4" />
+                  دليل المقاسات
+                </button>
+              </div>
+            )}
 
             {/* Variant Selectors */}
             {product.variants && product.variants.length > 0 && (
@@ -985,18 +1042,37 @@ const Product = () => {
               </div>
             )}
 
+            {false && (product.sizeGuideImages?.length || 0) > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSizeGuideModalOpen(true)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border-2 border-gray-300 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors inline-flex items-center gap-2 font-semibold"
+                  aria-label="دليل المقاسات"
+                  title="دليل المقاسات"
+                >
+                  <Ruler className="w-5 h-5" />
+                  دليل المقاسات
+                </button>
+              </div>
+            )}
+
             {/* Main Features */}
-            <div>
-              <h3 className="font-semibold text-gray-800 mb-3">المميزات الرئيسية:</h3>
-              <ul className="space-y-2">
-                {product.features.map((feature, index) => (
-                  <li key={index} className="flex items-center gap-2">
-                    <Award className="w-4 h-4 text-emerald-500" />
-                    <span className="text-gray-700">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {Array.isArray(product.features) && product.features.filter((f) => typeof f === 'string' && f.trim().length > 0).length > 0 && (
+              <div>
+                <h3 className="font-semibold text-gray-800 mb-3">المميزات الرئيسية:</h3>
+                <ul className="space-y-2">
+                  {product.features
+                    .filter((feature) => typeof feature === 'string' && feature.trim().length > 0)
+                    .map((feature, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <Award className="w-4 h-4 text-emerald-500" />
+                        <span className="text-gray-700">{feature}</span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
 
             {/* Quantity and Add to Cart */}
             {displayInStock && (
@@ -1031,13 +1107,18 @@ const Product = () => {
                       إضافة للسلة
                     </button>
                     <button
-                      onClick={() => setIsWishlisted(!isWishlisted)}
-                      className={`p-3 rounded-lg border-2 transition-colors ${isWishlisted
+                      onClick={() => {
+                        if (product && !isProcessingWishlist) {
+                          toggleWishlist(product.id);
+                        }
+                      }}
+                      disabled={isProcessingWishlist}
+                      className={`p-3 rounded-lg border-2 transition-colors ${productIsWishlisted
                         ? 'border-red-500 bg-red-50 text-red-500'
                         : 'border-gray-300 hover:border-red-300 hover:bg-red-50 hover:text-red-500'
                         }`}
                     >
-                      <Heart className={`w-5 h-5 ${isWishlisted ? 'fill-current' : ''}`} />
+                      <Heart className={`w-5 h-5 ${productIsWishlisted ? 'fill-current' : ''}`} />
                     </button>
                     <div className="relative">
                       <button
@@ -1097,14 +1178,31 @@ const Product = () => {
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleWhatsAppOrder}
-                    className="w-full bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center justify-center gap-2 font-semibold"
-                  >
-                    <MessageCircle className="w-5 h-5" />
-                    طلب عبر واتساب
-                  </button>
+                  {showWhatsAppOrderButton && (
+                    <button
+                      onClick={handleWhatsAppOrder}
+                      className="w-full bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center justify-center gap-2 font-semibold"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      طلب عبر واتساب
+                    </button>
+                  )}
                 </div>
+              </div>
+            )}
+
+            {false && (product.sizeGuideImages?.length || 0) > 0 && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSizeGuideModalOpen(true)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border-2 border-gray-300 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors inline-flex items-center gap-2 font-semibold"
+                  aria-label="دليل المقاسات"
+                  title="دليل المقاسات"
+                >
+                  <Ruler className="w-5 h-5" />
+                  دليل المقاسات
+                </button>
               </div>
             )}
 
@@ -1136,14 +1234,16 @@ const Product = () => {
         </div>
 
         {/* Product Details Tabs */}
-        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+        {(product.show_description || product.show_specifications) && (
+          <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
           {/* Tab Headers */}
           <div className="border-b">
             <div className="flex">
-              {[
-                { key: 'description', label: 'الوصف' },
-                { key: 'specifications', label: 'المواصفات' }
-              ].map((tab) => (
+              {
+                [
+                  { key: 'description', label: 'الوصف', show: product.show_description },
+                  { key: 'specifications', label: 'المواصفات', show: product.show_specifications }
+                ].filter(tab => tab.show).map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key as any)}
@@ -1160,7 +1260,7 @@ const Product = () => {
 
           {/* Tab Content */}
           <div className="p-6">
-            {activeTab === 'description' && (
+            {activeTab === 'description' && product.show_description && (
               <div className="space-y-4">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">وصف المنتج</h3>
                 <div
@@ -1170,7 +1270,7 @@ const Product = () => {
               </div>
             )}
 
-            {activeTab === 'specifications' && (
+            {activeTab === 'specifications' && product.show_specifications && (
               <div>
                 <h3 className="text-xl font-bold text-gray-800 mb-4">المواصفات التقنية</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1210,8 +1310,7 @@ const Product = () => {
 
           </div>
         </div>
-
-        {/* Contact Support */}
+        )}        {/* Contact Support */}
         <div className="mt-12 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-2xl p-8">
           <div className="text-center">
             <h3 className="text-2xl font-bold mb-4">هل تحتاج مساعدة؟</h3>
@@ -1241,6 +1340,41 @@ const Product = () => {
           </div>
         </div>
       </div>
+
+      {/* Size Guide Modal */}
+      {isSizeGuideModalOpen && product && (product.sizeGuideImages?.length || 0) > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4"
+          onClick={() => setIsSizeGuideModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-4 md:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setIsSizeGuideModalOpen(false)}
+              className="sticky top-0 mr-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+              aria-label="إغلاق دليل المقاسات"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="mb-4 text-xl font-bold text-gray-900">دليل المقاسات</h3>
+            <div className="space-y-4">
+              {product.sizeGuideImages?.map((img, index) => (
+                <img
+                  key={`${img}-${index}`}
+                  src={img}
+                  alt={`دليل المقاسات ${index + 1}`}
+                  className="w-full rounded-lg border border-gray-100 bg-white object-contain"
+                  onError={(e) => {
+                    e.currentTarget.src = '/placeholder.svg';
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Image Modal/Lightbox */}
       {isImageModalOpen && product && (
@@ -1337,3 +1471,4 @@ const Product = () => {
 };
 
 export default Product;
+

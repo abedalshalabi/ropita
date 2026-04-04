@@ -70,6 +70,12 @@ const Login = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
               {/* Email Field */}
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">

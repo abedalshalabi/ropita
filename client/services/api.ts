@@ -151,6 +151,35 @@ export const authAPI = {
     return response.json();
   },
 
+  forgotPassword: async (email: string) => {
+    const response = await fetch(`${API_BASE_URL}/forgot-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+    return response.json();
+  },
+
+  resetPassword: async (payload: {
+    token: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return response.json();
+  },
+
   // Logout user
   logout: async (token: string) => {
     const response = await fetch(`${API_BASE_URL}/logout`, {
@@ -425,26 +454,41 @@ export const brandsAPI = {
 // Wishlist API
 export const wishlistAPI = {
   // Get wishlist
-  getWishlist: async () => {
+  getWishlist: async (token?: string) => {
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(`${API_BASE_URL}/wishlist`, {
+      headers,
       credentials: 'include',
     });
     return response.json();
   },
 
   // Add to wishlist
-  addToWishlist: async (productId: number) => {
+  addToWishlist: async (productId: number, token?: string) => {
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(`${API_BASE_URL}/wishlist/${productId}`, {
       method: 'POST',
+      headers,
       credentials: 'include',
     });
     return response.json();
   },
 
   // Remove from wishlist
-  removeFromWishlist: async (productId: number) => {
+  removeFromWishlist: async (productId: number, token?: string) => {
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(`${API_BASE_URL}/wishlist/${productId}`, {
       method: 'DELETE',
+      headers,
       credentials: 'include',
     });
     return response.json();
@@ -512,6 +556,28 @@ export const contactAPI = {
     }
 
     return response.json();
+  },
+};
+
+// Newsletter API
+export const newsletterAPI = {
+  subscribe: async (data: { email: string; source?: string }) => {
+    const response = await fetch(`${API_BASE_URL}/newsletter/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'حدث خطأ أثناء الاشتراك');
+    }
+
+    return result;
   },
 };
 

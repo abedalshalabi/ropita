@@ -1,9 +1,10 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Search, Heart, User, ShoppingCart, Menu, Package, Grid3x3, Award, Tag } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { useWishlist } from "../context/WishlistContext";
 import { settingsAPI } from "../services/api";
 import { BASE_URL, getStorageUrl } from "../config/env";
 
@@ -32,6 +33,7 @@ interface HeaderSettings {
   social_media_linkedin?: string;
   social_media_youtube?: string;
   social_media_telegram?: string;
+  header_bottom_nav_links?: Array<{ title: string; link: string; show?: string | number | boolean }>;
   header_menu_items?: {
     main_pages?: Array<{ title: string; link: string }>;
     customer_service?: Array<{ title: string; link: string }>;
@@ -48,18 +50,35 @@ const Header = ({
   title,
   subtitle
 }: HeaderProps) => {
+  const parseCachedBottomNavLinks = () => {
+    if (!cachedBottomNavLinks) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(cachedBottomNavLinks);
+    } catch {
+      return undefined;
+    }
+  };
+
   const { state } = useCart();
+  const { wishlistIds } = useWishlist();
   const { headerLogo } = useSiteSettings();
   const { isAuthenticated, logout, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   // استخدام اللوجو المحفوظ مسبقاً كقيمة أولية لتجنب التأخير
   const cachedLogo = typeof window !== 'undefined' ? localStorage.getItem('header_logo_cache') : null;
   const cachedTitle = typeof window !== 'undefined' ? localStorage.getItem('header_title_cache') : null;
+  const cachedBottomNavLinks = typeof window !== 'undefined' ? localStorage.getItem('header_bottom_nav_links_cache') : null;
   const [settings, setSettings] = useState<HeaderSettings>({
     header_logo: headerLogo || cachedLogo || undefined,
     header_title: cachedTitle || undefined,
+    header_bottom_nav_links: parseCachedBottomNavLinks(),
   });
   const [loading, setLoading] = useState(true);
 
@@ -73,6 +92,40 @@ const Header = ({
   useEffect(() => {
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    setIsHeaderVisible(true);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isMenuOpen) {
+      setIsHeaderVisible(true);
+      return;
+    }
+
+    let lastScrollY = window.scrollY;
+
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      const scrollDelta = currentScrollY - lastScrollY;
+
+      if (currentScrollY <= 24) {
+        setIsHeaderVisible(true);
+      } else if (scrollDelta > 8) {
+        setIsHeaderVisible(false);
+      } else if (scrollDelta < -8) {
+        setIsHeaderVisible(true);
+      }
+
+      lastScrollY = currentScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [isMenuOpen]);
 
   const loadSettings = async () => {
     try {
@@ -90,11 +143,25 @@ const Header = ({
         if (response.data.header_title) {
           localStorage.setItem('header_title_cache', response.data.header_title);
         }
-        setSettings(prev => ({ ...response.data, header_logo: prev.header_logo }));
+        if (response.data.header_bottom_nav_links) {
+          localStorage.setItem('header_bottom_nav_links_cache', JSON.stringify(response.data.header_bottom_nav_links));
+        }
+        setSettings(prev => ({
+          ...response.data,
+          header_logo: prev.header_logo,
+          header_bottom_nav_links: response.data.header_bottom_nav_links ?? prev.header_bottom_nav_links,
+        }));
       } else if (response) {
         // If response is the data directly
         console.log("Header settings (direct):", response);
-        setSettings(prev => ({ ...response, header_logo: prev.header_logo }));
+        if (response.header_bottom_nav_links) {
+          localStorage.setItem('header_bottom_nav_links_cache', JSON.stringify(response.header_bottom_nav_links));
+        }
+        setSettings(prev => ({
+          ...response,
+          header_logo: prev.header_logo,
+          header_bottom_nav_links: response.header_bottom_nav_links ?? prev.header_bottom_nav_links,
+        }));
       }
     } catch (error) {
       console.error("Error loading header settings:", error);
@@ -139,8 +206,47 @@ const Header = ({
     }
   };
 
+  const isActiveNavItem = (path: string) => {
+    if (path === "/products") {
+      return location.pathname === "/products" || location.pathname.startsWith("/product/");
+    }
+
+    return location.pathname === path;
+  };
+
+  const getNavLinkClass = (path: string) =>
+    `flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm md:text-sm font-semibold rounded-lg border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+      isActiveNavItem(path)
+        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+        : "bg-white text-gray-700 border-emerald-100 hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50"
+    }`;
+
+  const bottomNavLinks = (settings.header_bottom_nav_links || []).filter((item) => {
+    const showValue = item.show;
+    return showValue === undefined || showValue === true || showValue === 1 || showValue === "1" || showValue === "true";
+  });
+
+  const getNavIcon = (path: string) => {
+    switch (path) {
+      case "/products":
+        return Package;
+      case "/categories":
+        return Grid3x3;
+      case "/brands":
+        return Award;
+      case "/offers":
+        return Tag;
+      default:
+        return Package;
+    }
+  };
+
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
+    <header
+      className={`sticky top-0 z-50 bg-white shadow-sm transition-transform duration-300 will-change-transform ${
+        isHeaderVisible ? "translate-y-0" : "-translate-y-full"
+      }`}
+    >
       {/* Announcement Banner */}
       {settings.header_announcement_text && (
         <div className="bg-emerald-600 text-white text-center py-1.5 px-4 shadow-sm text-xs sm:text-sm font-medium tracking-wide">
@@ -344,12 +450,14 @@ const Header = ({
           {/* Header Actions */}
           {showActions && (
             <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
-              <button className="p-2 sm:p-2.5 md:p-3 hover:bg-gray-100 rounded-full transition-colors relative hidden sm:flex">
+              <Link to="/wishlist" className="p-2 sm:p-2.5 md:p-3 hover:bg-gray-100 rounded-full transition-colors relative hidden sm:flex">
                 <Heart className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6 text-gray-600" />
-                <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 bg-red-600 text-white text-xs rounded-full w-4 h-4 sm:w-4.5 sm:h-4.5 md:w-5 md:h-5 flex items-center justify-center">
-                  0
-                </span>
-              </button>
+                {wishlistIds.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 bg-red-600 text-white text-xs rounded-full w-4 h-4 sm:w-4.5 sm:h-4.5 md:w-5 md:h-5 flex items-center justify-center">
+                    {wishlistIds.length}
+                  </span>
+                )}
+              </Link>
 
               <div className="relative group">
                 <Link 
@@ -427,47 +535,28 @@ const Header = ({
       </div>
 
       {/* Navigation Links Row - Separate Line */}
-      <div className="border-t border-gray-200 bg-gray-50">
-        <div className="container mx-auto px-2 sm:px-4 py-2">
-          <nav className="flex items-center justify-center gap-1 sm:gap-2 md:gap-4 lg:gap-6 overflow-x-auto scrollbar-hide">
-            <Link
-              to="/products"
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 md:px-4 py-1.5 text-[10px] sm:text-xs md:text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 whitespace-nowrap flex-shrink-0"
-            >
-              <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="hidden xs:inline">عرض جميع المنتجات</span>
-              <span className="xs:hidden">المنتجات</span>
-            </Link>
-            <div className="h-4 sm:h-5 w-px bg-emerald-200 flex-shrink-0"></div>
-            <Link
-              to="/categories"
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 md:px-4 py-1.5 text-[10px] sm:text-xs md:text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 whitespace-nowrap flex-shrink-0"
-            >
-              <Grid3x3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="hidden xs:inline">عرض جميع التصنيفات</span>
-              <span className="xs:hidden">التصنيفات</span>
-            </Link>
-            <div className="h-4 sm:h-5 w-px bg-emerald-200 flex-shrink-0"></div>
-            <Link
-              to="/brands"
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 md:px-4 py-1.5 text-[10px] sm:text-xs md:text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 whitespace-nowrap flex-shrink-0"
-            >
-              <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="hidden xs:inline">عرض جميع الماركات</span>
-              <span className="xs:hidden">الماركات</span>
-            </Link>
-            <div className="h-4 sm:h-5 w-px bg-emerald-200 flex-shrink-0"></div>
-            <Link
-              to="/offers"
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 md:px-4 py-1.5 text-[10px] sm:text-xs md:text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 whitespace-nowrap flex-shrink-0"
-            >
-              <Tag className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="hidden xs:inline">العروض الخاصة</span>
-              <span className="xs:hidden">العروض</span>
-            </Link>
-          </nav>
+      {bottomNavLinks.length > 0 && (
+        <div className="border-t border-gray-200 bg-gradient-to-b from-gray-50 to-white">
+          <div className="container mx-auto px-2 sm:px-4 py-1.5">
+            <nav className="flex items-center justify-center gap-2 sm:gap-3 md:gap-4 overflow-x-auto scrollbar-hide">
+              {bottomNavLinks.map((item, index) => {
+                const Icon = getNavIcon(item.link);
+
+                return (
+                  <Link
+                    key={`${item.link}-${index}`}
+                    to={item.link}
+                    className={getNavLinkClass(item.link)}
+                  >
+                    <Icon className="w-4 h-4 sm:w-4.5 sm:h-4.5 md:w-5 md:h-5 flex-shrink-0" />
+                    <span>{item.title}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Mobile Menu Dropdown */}
       {isMenuOpen && showActions && (

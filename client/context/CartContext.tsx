@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, ReactNode, useEffect, useCallbac
 import { cartAPI } from "../services/api";
 import { STORAGE_BASE_URL } from "../config/env";
 import { useAuth } from "./AuthContext";
+import { toast } from "../hooks/use-toast";
 
 interface CartItem {
   id: number;
@@ -16,6 +17,8 @@ interface CartItem {
   type?: 'product' | 'offer';
   selected_options?: Record<string, string>;
   db_cart_id?: number; // Backend DB record ID
+  stock_quantity?: number;
+  manage_stock?: boolean;
 }
 
 interface CartState {
@@ -107,8 +110,25 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const initCartState = (initial: CartState) => {
+  if (typeof window !== 'undefined') {
+    try {
+      const localCart = localStorage.getItem('guest_cart');
+      if (localCart) {
+        const items = JSON.parse(localCart);
+        const total = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+        const itemCount = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
+        return { ...initial, items, total, itemCount };
+      }
+    } catch (e) {
+      console.error("Corrupted local cart");
+    }
+  }
+  return initial;
+};
+
 export const CartProvider = ({ children }: { children: ReactNode }) => {
-  const [state, dispatch] = useReducer(cartReducer, initialState);
+  const [state, dispatch] = useReducer(cartReducer, initialState, initCartState);
   const { token, isAuthenticated } = useAuth();
   const isInitialMount = useRef(true);
 
@@ -132,7 +152,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           })(),
           quantity: item.quantity,
           brand: item.product.brand?.name || 'ماركة غير محددة',
-          selected_options: item.variant_values
+          selected_options: item.variant_values,
+          stock_quantity: item.stock_quantity,
+          manage_stock: item.manage_stock
         }));
         dispatch({ type: "SET_ITEMS", payload: mappedItems });
       }
@@ -166,11 +188,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (isAuthenticated && token) {
       loadCartFromBackend();
-    } else {
-      loadCartFromLocal();
     }
     isInitialMount.current = false;
-  }, [isAuthenticated, token, loadCartFromBackend, loadCartFromLocal]);
+  }, [isAuthenticated, token, loadCartFromBackend]);
 
   // Sync guest cart to DB upon login
   useEffect(() => {
@@ -183,9 +203,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
             const sync = async () => {
               for (const item of items) {
                 try {
-                   await cartAPI.addToCart(item.id, item.quantity, item.variant_id, token);
+                  await cartAPI.addToCart(item.id, item.quantity, item.variant_id, token);
                 } catch (e) {
-                   console.error("Failed to sync item", item.id);
+                  console.error("Failed to sync item", item.id);
                 }
               }
               localStorage.removeItem('guest_cart');
@@ -201,6 +221,18 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   }, [isAuthenticated, token, loadCartFromBackend]);
 
   const addItem = async (item: Omit<CartItem, "quantity">) => {
+    const existingItem = state.items.find(i => i.id === item.id && i.variant_id === item.variant_id);
+    const currentQuantity = existingItem ? existingItem.quantity : 0;
+    
+    if (item.manage_stock && (currentQuantity + 1) > (item.stock_quantity || 0)) {
+      toast({
+        title: "عذراً، أقصى كمية متاحة",
+        description: "الكمية المطلوبة تتجاوز المخزون المتوفر.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isAuthenticated && token) {
       try {
         await cartAPI.addToCart(item.id, 1, item.variant_id, token);
@@ -214,37 +246,49 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const removeItem = async (id: number, variant_id?: number) => {
-    if (isAuthenticated && token) {
-      // Find db_cart_id
-      const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
-      if (item?.db_cart_id) {
-        try {
-          await cartAPI.removeFromCart(item.db_cart_id, token);
-          loadCartFromBackend();
-        } catch (error) {
-          console.error("Failed to remove from cart on backend:", error);
-        }
+    const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
+    
+    // Optimistic UI update
+    dispatch({ type: "REMOVE_ITEM", payload: { id, variant_id } });
+
+    if (isAuthenticated && token && item?.db_cart_id) {
+      try {
+        await cartAPI.removeFromCart(item.db_cart_id, token);
+      } catch (error) {
+        console.error("Failed to remove from cart on backend:", error);
+        loadCartFromBackend(); // Rollback if failed
       }
-    } else {
-      dispatch({ type: "REMOVE_ITEM", payload: { id, variant_id } });
     }
   };
 
   const updateQuantity = async (id: number, quantity: number, variant_id?: number) => {
     if (quantity < 1) return;
-    
-    if (isAuthenticated && token) {
-      const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
-      if (item?.db_cart_id) {
-        try {
-          await cartAPI.updateCartItem(item.db_cart_id, quantity, token);
-          loadCartFromBackend();
-        } catch (error) {
-          console.error("Failed to update cart on backend:", error);
-        }
+
+    const item = state.items.find(i => i.id === id && i.variant_id === variant_id);
+    if (item && item.manage_stock && quantity > (item.stock_quantity || 0)) {
+      toast({
+        title: "عذراً، أقصى كمية متاحة",
+        description: "لقد وصلت للحد الأقصى المتوفر من هذا المنتج.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Optimistic UI update for instant feedback
+    dispatch({ type: "UPDATE_QUANTITY", payload: { id, variant_id, quantity } });
+
+    if (isAuthenticated && token && item?.db_cart_id) {
+      try {
+        await cartAPI.updateCartItem(item.db_cart_id, quantity, token);
+      } catch (error) {
+        console.error("Failed to update cart on backend:", error);
+        toast({
+          title: "فشل التحديث",
+          description: "حدث خطأ أثناء الاتصال بالخادم.",
+          variant: "destructive",
+        });
+        loadCartFromBackend(); // Rollback local state
       }
-    } else {
-      dispatch({ type: "UPDATE_QUANTITY", payload: { id, variant_id, quantity } });
     }
   };
 

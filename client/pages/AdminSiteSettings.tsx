@@ -20,90 +20,188 @@ interface ArrayItemEditorProps {
 }
 
 const ArrayItemEditor = ({ settingKey, item, itemIndex, keys, onItemChange, onRemove }: ArrayItemEditorProps) => {
+  const isHeaderBottomNavLink = settingKey === 'header_bottom_nav_links';
+  const isVisible = item.show === '1' || item.show === 1 || item.show === true || item.show === 'true';
+
+  const getFieldLabel = (key: string) => {
+    if (!isHeaderBottomNavLink) return key;
+
+    switch (key) {
+      case 'title':
+        return 'النص الظاهر';
+      case 'link':
+        return 'الرابط';
+      case 'show':
+        return 'حالة الظهور';
+      default:
+        return key;
+    }
+  };
+
+  const getFieldHint = (key: string) => {
+    if (!isHeaderBottomNavLink) return '';
+
+    switch (key) {
+      case 'title':
+        return 'مثال: المنتجات';
+      case 'link':
+        return 'مثال: /products';
+      case 'show':
+        return isVisible ? 'هذا الرابط ظاهر حالياً في الهيدر.' : 'هذا الرابط مخفي حالياً من الهيدر.';
+      default:
+        return '';
+    }
+  };
+
   return (
-    <div className="border rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-medium text-gray-700">عنصر #{itemIndex + 1}</span>
+    <div
+      className={`space-y-4 rounded-2xl border p-4 ${isHeaderBottomNavLink ? 'border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/70 shadow-sm' : 'border-gray-200 bg-white'}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <span className="inline-flex items-center rounded-full border border-emerald-100 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+            {isHeaderBottomNavLink ? `رابط الهيدر ${itemIndex + 1}` : `عنصر ${itemIndex + 1}`}
+          </span>
+          {isHeaderBottomNavLink && (
+            <p className="text-sm text-gray-500">
+              عدّل النص والرابط وحدد هل تريد إظهاره أو إخفاءه.
+            </p>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => onRemove(itemIndex)}
-          className="text-red-600 hover:text-red-800"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
+          title="حذف العنصر"
         >
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
-      {keys.map((key) => {
-        const isImageField = key.toLowerCase().includes('image') ||
-          key.toLowerCase().includes('photo') ||
-          key.toLowerCase().includes('picture') ||
-          key.toLowerCase().includes('avatar') ||
-          (typeof item[key] === 'string' && (
-            item[key].startsWith('http://') ||
-            item[key].startsWith('https://') ||
-            item[key].startsWith('/storage/') ||
-            item[key].match(/\.(jpg|jpeg|png|gif|webp)$/i)
-          ));
 
-        return (
-          <div key={key}>
-            <Label className="text-xs text-gray-600 capitalize">{key}</Label>
-            {isImageField ? (
-              <ImageUploadInput
-                setting={{ key: settingKey } as SiteSetting}
-                value={item[key] || ''}
-                onChange={(value) => onItemChange(itemIndex, key, value)}
-                onFileUpload={async (file) => {
-                  try {
-                    const response = await adminSettingsAPI.uploadImageGeneral(file);
-                    if (response.data?.value) {
-                      onItemChange(itemIndex, key, response.data.value);
+      <div className={isHeaderBottomNavLink ? 'grid gap-4 md:grid-cols-2' : 'space-y-3'}>
+        {keys.map((key) => {
+          const isImageField = key.toLowerCase().includes('image') ||
+            key.toLowerCase().includes('photo') ||
+            key.toLowerCase().includes('picture') ||
+            key.toLowerCase().includes('avatar') ||
+            (typeof item[key] === 'string' && (
+              item[key].startsWith('http://') ||
+              item[key].startsWith('https://') ||
+              item[key].startsWith('/storage/') ||
+              item[key].match(/\.(jpg|jpeg|png|gif|webp)$/i)
+            ));
+
+          return (
+            <div
+              key={key}
+              className={isHeaderBottomNavLink && key === 'show' ? 'md:col-span-2' : undefined}
+            >
+              <Label className="text-sm font-semibold text-gray-700 capitalize">
+                {getFieldLabel(key)}
+              </Label>
+              {getFieldHint(key) && (
+                <p className="mt-1 mb-2 text-xs text-gray-500">{getFieldHint(key)}</p>
+              )}
+              {isImageField ? (
+                <ImageUploadInput
+                  setting={{ key: settingKey } as SiteSetting}
+                  value={item[key] || ''}
+                  onChange={(value) => onItemChange(itemIndex, key, value)}
+                  onFileUpload={async (file) => {
+                    try {
+                      const response = await adminSettingsAPI.uploadImageGeneral(file);
+                      if (response.data?.value) {
+                        onItemChange(itemIndex, key, response.data.value);
+                        Swal.fire({
+                          icon: 'success',
+                          title: 'تم!',
+                          text: 'تم رفع الصورة بنجاح',
+                          toast: true,
+                          position: 'top-end',
+                          showConfirmButton: false,
+                          timer: 2000,
+                        });
+                      }
+                    } catch (error: any) {
                       Swal.fire({
-                        icon: 'success',
-                        title: 'تم!',
-                        text: 'تم رفع الصورة بنجاح',
+                        icon: 'error',
+                        title: 'خطأ!',
+                        text: error.response?.data?.message || 'فشل في رفع الصورة',
                         toast: true,
                         position: 'top-end',
                         showConfirmButton: false,
-                        timer: 2000,
+                        timer: 3000,
                       });
                     }
-                  } catch (error: any) {
-                    Swal.fire({
-                      icon: 'error',
-                      title: 'خطأ!',
-                      text: error.response?.data?.message || 'فشل في رفع الصورة',
-                      toast: true,
-                      position: 'top-end',
-                      showConfirmButton: false,
-                      timer: 3000,
-                    });
-                  }
-                }}
-              />
-            ) : typeof item[key] === 'object' && Array.isArray(item[key]) ? (
-              <Textarea
-                value={JSON.stringify(item[key], null, 2)}
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value);
-                    onItemChange(itemIndex, key, parsed);
-                  } catch {
-                    onItemChange(itemIndex, key, e.target.value);
-                  }
-                }}
-                rows={3}
-                className="font-mono text-xs"
-              />
-            ) : (
-              <Input
-                type="text"
-                value={item[key] || ''}
-                onChange={(e) => onItemChange(itemIndex, key, e.target.value)}
-              />
-            )}
-          </div>
-        );
-      })}
+                  }}
+                />
+              ) : typeof item[key] === 'object' && Array.isArray(item[key]) ? (
+                <Textarea
+                  value={JSON.stringify(item[key], null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      onItemChange(itemIndex, key, parsed);
+                    } catch {
+                      onItemChange(itemIndex, key, e.target.value);
+                    }
+                  }}
+                  rows={3}
+                  className="font-mono text-xs"
+                />
+              ) : settingKey === 'header_bottom_nav_links' && key === 'show' ? (
+                <div className="rounded-2xl border border-emerald-100 bg-white p-3 sm:p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex w-full sm:w-auto rounded-xl border border-emerald-100 bg-emerald-50 p-1">
+                      <button
+                        type="button"
+                        onClick={() => onItemChange(itemIndex, key, '1')}
+                        className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all sm:flex-none ${
+                          item[key] === '1' || item[key] === 1 || item[key] === true || item[key] === 'true'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-gray-600 hover:bg-white'
+                        }`}
+                      >
+                        إظهار
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onItemChange(itemIndex, key, '0')}
+                        className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all sm:flex-none ${
+                          item[key] === '0' || item[key] === 0 || item[key] === false || item[key] === 'false'
+                            ? 'bg-rose-500 text-white shadow-sm'
+                            : 'text-gray-600 hover:bg-white'
+                        }`}
+                      >
+                        إخفاء
+                      </button>
+                    </div>
+                    <span
+                      className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-sm font-semibold ${
+                        item[key] === '1' || item[key] === 1 || item[key] === true || item[key] === 'true'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-rose-50 text-rose-600'
+                      }`}
+                    >
+                      {item[key] === '1' || item[key] === 1 || item[key] === true || item[key] === 'true'
+                        ? 'ظاهر حالياً'
+                        : 'مخفي حالياً'}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  type="text"
+                  value={item[key] || ''}
+                  onChange={(e) => onItemChange(itemIndex, key, e.target.value)}
+                  placeholder={getFieldHint(key)}
+                  className={isHeaderBottomNavLink ? 'h-11 rounded-xl border-gray-200 bg-white' : undefined}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -256,6 +354,16 @@ interface Tab {
   group: string;
 }
 
+const HOMEPAGE_SECTION_LABELS: Record<string, string> = {
+  hero_slider: 'السلايدر الرئيسي',
+  main_categories: 'التصنيفات الرئيسية',
+  brand_categories: 'قسم الماركات',
+  featured_offers: 'العروض المميزة',
+  latest_products: 'أحدث المنتجات',
+  newsletter: 'النشرة البريدية',
+  homepage_features: 'بطاقات المزايا',
+};
+
 const tabs: Tab[] = [
   { id: 'general', label: 'الإعدادات العامة', group: 'general' },
   { id: 'header', label: 'Header', group: 'header' },
@@ -394,6 +502,80 @@ const AdminSiteSettings = () => {
   const renderSettingInput = (setting: SiteSetting) => {
     switch (setting.type) {
       case 'json':
+        if (
+          setting.key === 'homepage_section_visibility' &&
+          setting.value &&
+          typeof setting.value === 'object' &&
+          !Array.isArray(setting.value)
+        ) {
+          const sectionVisibility = setting.value as Record<string, boolean | string | number>;
+
+          const updateSectionVisibility = (sectionKey: string, isVisible: boolean) => {
+            handleSettingChange(setting.key, {
+              ...sectionVisibility,
+              [sectionKey]: isVisible,
+            });
+          };
+
+          return (
+            <div className="grid gap-4 md:grid-cols-2">
+              {Object.entries(sectionVisibility).map(([sectionKey, value]) => {
+                const isVisible =
+                  value === true ||
+                  value === 1 ||
+                  value === '1' ||
+                  value === 'true';
+
+                return (
+                  <div
+                    key={sectionKey}
+                    className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/70 p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-800">
+                          {HOMEPAGE_SECTION_LABELS[sectionKey] || sectionKey}
+                        </h4>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {isVisible ? 'القسم ظاهر الآن في الصفحة الرئيسية.' : 'القسم مخفي الآن من الصفحة الرئيسية.'}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                          isVisible ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'
+                        }`}
+                      >
+                        {isVisible ? 'ظاهر' : 'مخفي'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex rounded-xl border border-emerald-100 bg-white p-1">
+                      <button
+                        type="button"
+                        onClick={() => updateSectionVisibility(sectionKey, true)}
+                        className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                          isVisible ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-600 hover:bg-emerald-50'
+                        }`}
+                      >
+                        إظهار
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateSectionVisibility(sectionKey, false)}
+                        className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                          !isVisible ? 'bg-rose-500 text-white shadow-sm' : 'text-gray-600 hover:bg-rose-50'
+                        }`}
+                      >
+                        إخفاء
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
         // Special handling for header_menu_items (object with nested arrays)
         if (setting.key === 'header_menu_items' && setting.value && typeof setting.value === 'object' && !Array.isArray(setting.value)) {
           const menuItems = setting.value as { main_pages?: Array<{ title: string; link: string }>, customer_service?: Array<{ title: string; link: string }>, account?: Array<{ title: string; link: string }> };
@@ -716,6 +898,30 @@ const AdminSiteSettings = () => {
     }
   };
 
+  const getOrderedSettings = (items: SiteSetting[]) => {
+    if (activeTab !== 'general') {
+      return items;
+    }
+
+    const priority: Record<string, number> = {
+      site_name: 1,
+      header_logo: 2,
+      site_logo: 2,
+      site_favicon: 3,
+      homepage_section_visibility: 4,
+    };
+
+    return [...items].sort((a, b) => {
+      const aPriority = priority[a.key] ?? 999;
+      const bPriority = priority[b.key] ?? 999;
+
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+
+      return 0;
+    });
+  };
   const currentTab = tabs.find(t => t.id === activeTab);
 
   return (
@@ -783,9 +989,9 @@ const AdminSiteSettings = () => {
                     const socialSettings = settings.filter(s =>
                       s.key.startsWith('social_media_') || s.key === 'whatsapp_number'
                     );
-                    const otherSettings = settings.filter(s =>
+                    const otherSettings = getOrderedSettings(settings.filter(s =>
                       !contactSettings.includes(s) && !socialSettings.includes(s)
-                    );
+                    ));
 
                     return (
                       <>
@@ -884,4 +1090,3 @@ const AdminSiteSettings = () => {
 };
 
 export default AdminSiteSettings;
-

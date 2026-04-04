@@ -133,6 +133,14 @@ export const adminCustomersAPI = {
   async getCustomer(id: string) {
     const response = await adminApi.get(`/v1/admin/customers/${id}`);
     return response.data;
+  },
+
+  async resetPassword(id: string, password: string, passwordConfirmation: string) {
+    const response = await adminApi.post(`/v1/admin/customers/${id}/reset-password`, {
+      password,
+      password_confirmation: passwordConfirmation,
+    });
+    return response.data;
   }
 };
 
@@ -202,6 +210,14 @@ export const adminProductsAPI = {
     const response = await adminApi.post('/v1/admin/products/bulk-discount', {
       product_ids: productIds,
       discount_percentage: discountPercentage
+    });
+    return response.data;
+  },
+
+  async bulkUpdateStatus(productIds: number[], isActive: boolean) {
+    const response = await adminApi.post('/v1/admin/products/bulk-status', {
+      product_ids: productIds,
+      is_active: isActive,
     });
     return response.data;
   },
@@ -507,6 +523,36 @@ export const adminContactMessagesAPI = {
   
   async deleteContactMessage(id: string) {
     const response = await adminApi.delete(`/v1/admin/contact-messages/${id}`);
+    return response.data;
+  }
+};
+
+export const adminNewsletterSubscribersAPI = {
+  async getSubscribers(filters: any = {}) {
+    const response = await adminApi.get('/v1/admin/newsletter-subscribers', { params: filters });
+    return response.data;
+  },
+
+  async exportSubscribers(filters: any = {}) {
+    const response = await adminApi.get('/v1/admin/newsletter-subscribers-export', {
+      params: filters,
+      responseType: 'blob',
+    });
+    return response;
+  },
+
+  async getSubscriber(id: string) {
+    const response = await adminApi.get(`/v1/admin/newsletter-subscribers/${id}`);
+    return response.data;
+  },
+
+  async updateStatus(id: string, status: 'active' | 'unsubscribed') {
+    const response = await adminApi.put(`/v1/admin/newsletter-subscribers/${id}/status`, { status });
+    return response.data;
+  },
+
+  async deleteSubscriber(id: string) {
+    const response = await adminApi.delete(`/v1/admin/newsletter-subscribers/${id}`);
     return response.data;
   }
 };

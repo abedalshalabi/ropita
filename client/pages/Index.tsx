@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
-  Star,
   ChevronRight,
-  Zap,
-  Shield,
   Truck,
-  Clock,
+  Shield,
+  SmilePlus,
+  Gem,
   Tag,
   TrendingUp,
   Heart,
@@ -17,13 +16,89 @@ import {
 } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAnimation } from "../context/AnimationContext";
+import { useWishlist } from "../context/WishlistContext";
 import Header from "../components/Header";
 import Carousel from "../components/Carousel";
 import SimpleCarousel3D from "../components/SimpleCarousel3D";
 import SEO from "../components/SEO";
-import { productsAPI, categoriesAPI, brandsAPI, settingsAPI, sliderAPI } from "../services/api";
+import { productsAPI, categoriesAPI, brandsAPI, settingsAPI, sliderAPI, newsletterAPI } from "../services/api";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 import { getStorageUrl } from "../config/env";
+
+const colorNameToHex: Record<string, string> = {
+  "احمر": "#ef4444",
+  "أحمر": "#ef4444",
+  "ازرق": "#3b82f6",
+  "أزرق": "#3b82f6",
+  "اخضر": "#22c55e",
+  "أخضر": "#22c55e",
+  "اصفر": "#eab308",
+  "أصفر": "#eab308",
+  "برتقالي": "#f97316",
+  "بنفسجي": "#a855f7",
+  "وردي": "#ec4899",
+  "زهري": "#ec4899",
+  "اسود": "#111827",
+  "أسود": "#111827",
+  "ابيض": "#ffffff",
+  "أبيض": "#ffffff",
+  "رمادي": "#9ca3af",
+  "بني": "#92400e",
+  "كحلي": "#1e3a8a",
+  "beige": "#d6c3a5",
+  "black": "#111827",
+  "white": "#ffffff",
+  "red": "#ef4444",
+  "blue": "#3b82f6",
+  "green": "#22c55e",
+  "yellow": "#eab308",
+  "orange": "#f97316",
+  "purple": "#a855f7",
+  "pink": "#ec4899",
+  "gray": "#9ca3af",
+  "grey": "#9ca3af",
+  "brown": "#92400e",
+  "navy": "#1e3a8a",
+};
+
+const resolveColorHex = (label: string): string | null => {
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  if (/^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(trimmed)) return trimmed;
+  return colorNameToHex[trimmed.toLowerCase()] || null;
+};
+
+const extractAvailableColors = (filterValues?: Record<string, any>): string[] => {
+  if (!filterValues || typeof filterValues !== "object") return [];
+  const colors = new Set<string>();
+
+  Object.entries(filterValues).forEach(([key, rawValue]) => {
+    const compactKey = key.toLowerCase().replace(/\s+/g, "");
+    const isColorKey =
+      compactKey.includes("لون") ||
+      compactKey.includes("الوان") ||
+      compactKey.includes("ألوان") ||
+      compactKey.includes("الالوان") ||
+      compactKey.includes("color") ||
+      compactKey.includes("colors");
+
+    if (!isColorKey) return;
+
+    const values = Array.isArray(rawValue)
+      ? rawValue
+      : typeof rawValue === "string"
+        ? rawValue.split(",")
+        : [];
+
+    values.forEach((item) => {
+      if (typeof item !== "string") return;
+      const normalized = item.trim().replace(/\s+/g, " ");
+      if (normalized) colors.add(normalized);
+    });
+  });
+
+  return Array.from(colors);
+};
 
 const Index = () => {
   const { siteName, headerLogo } = useSiteSettings();
@@ -31,6 +106,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const { addItem } = useCart();
   const { triggerAnimation } = useAnimation();
+  const { isWishlisted, toggleWishlist, wishlistProcessing } = useWishlist();
 
   // API State
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
@@ -46,6 +122,10 @@ const Index = () => {
   const [contactSettings, setContactSettings] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterLoading, setNewsletterLoading] = useState(false);
+  const [newsletterMessage, setNewsletterMessage] = useState("");
+  const [newsletterMessageType, setNewsletterMessageType] = useState<"success" | "error" | "">("");
 
   // Load data from API
   useEffect(() => {
@@ -147,16 +227,24 @@ const Index = () => {
       product.image ||
       "https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=300&h=300&fit=crop";
 
+    const basePrice = Number(product.price || 0);
+    const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
+    const salePrice = discountPercentage > 0
+      ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2))
+      : basePrice;
+
     return {
       id: product.id,
       name: product.name,
-      price: product.price,
-      originalPrice: product.original_price,
+      price: salePrice,
+      originalPrice: basePrice,
+      comparePrice: product.compare_price ? Number(product.compare_price) : 0,
       image: getStorageUrl(imageUrl),
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       category: product.category?.name || "عام",
-      discount: product.discount_percentage || 0,
+      discount: discountPercentage,
+      discountPercentage: discountPercentage,
       isNew: product.is_new || false,
       isBestSeller: Boolean(product.is_featured || product.is_best_seller),
       hasVariants: product.has_variants || false,
@@ -164,6 +252,7 @@ const Index = () => {
       maxPrice: product.max_price,
       stockStatus: product.stock_status || (product.in_stock ? "متوفر" : "غير متوفر"),
       inStock: product.in_stock !== false && product.stock_status !== 'out_of_stock',
+      filterValues: product.filter_values || {},
     };
   });
 
@@ -178,22 +267,31 @@ const Index = () => {
       product.image ||
       "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=300&h=300&fit=crop";
 
+    const basePrice = Number(product.price || 0);
+    const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
+    const salePrice = discountPercentage > 0
+      ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2))
+      : basePrice;
+
     return {
       id: product.id,
       name: product.name,
-      price: product.price,
-      originalPrice: product.original_price,
+      price: salePrice,
+      originalPrice: basePrice,
+      comparePrice: product.compare_price ? Number(product.compare_price) : 0,
       image: getStorageUrl(imageUrl),
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       brand: product.brand?.name || "",
-      discount: product.discount_percentage || 0,
+      discount: discountPercentage,
+      discountPercentage: discountPercentage,
       isNew: product.is_new || true,
       stockStatus: product.stock_status || (product.in_stock ? "متوفر" : "غير متوفر"),
       inStock: product.in_stock !== false && product.stock_status !== 'out_of_stock',
       hasVariants: product.has_variants || false,
       hasPriceRange: product.has_price_range || false,
       maxPrice: product.max_price,
+      filterValues: product.filter_values || {},
     };
   });
 
@@ -241,8 +339,217 @@ const Index = () => {
 
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
+  const handleNewsletterSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newsletterEmail.trim()) {
+      setNewsletterMessageType("error");
+      setNewsletterMessage("يرجى إدخال البريد الإلكتروني.");
+      return;
+    }
+
+    try {
+      setNewsletterLoading(true);
+      setNewsletterMessage("");
+      setNewsletterMessageType("");
+
+      const response = await newsletterAPI.subscribe({
+        email: newsletterEmail.trim(),
+        source: "homepage",
+      });
+
+      setNewsletterMessageType("success");
+      setNewsletterMessage(response.message || "تم الاشتراك بنجاح.");
+      setNewsletterEmail("");
+    } catch (err: any) {
+      setNewsletterMessageType("error");
+      setNewsletterMessage(err.message || "حدث خطأ أثناء الاشتراك.");
+    } finally {
+      setNewsletterLoading(false);
+    }
+  };
+
   // Get logo URL (use headerLogo from context)
   const logoUrl = getStorageUrl(headerLogo) || `${siteUrl}/placeholder.svg`;
+
+  const homepageFeatures = Array.isArray(generalSettings.homepage_features)
+    ? generalSettings.homepage_features
+    : [];
+
+  const homepageSectionVisibility =
+    generalSettings.homepage_section_visibility &&
+    typeof generalSettings.homepage_section_visibility === "object" &&
+    !Array.isArray(generalSettings.homepage_section_visibility)
+      ? generalSettings.homepage_section_visibility
+      : {};
+
+  const isHomepageSectionVisible = (sectionKey: string) => {
+    const value = homepageSectionVisibility[sectionKey];
+
+    if (value === undefined || value === null) {
+      return true;
+    }
+
+    return value === true || value === 1 || value === "1" || value === "true";
+  };
+
+  const featureIcons: Record<string, any> = {
+    gem: Gem,
+    quality: Gem,
+    smile: SmilePlus,
+    support: SmilePlus,
+    truck: Truck,
+    delivery: Truck,
+    map: MapPin,
+    location: MapPin,
+  };
+
+  const formatPrice = (price: number | string) => {
+    const numericPrice = typeof price === "number" ? price : Number(price);
+    if (Number.isNaN(numericPrice)) {
+      return price;
+    }
+
+    return Number.isInteger(numericPrice) ? numericPrice.toString() : numericPrice.toFixed(2);
+  };
+
+  const HomeProductCard = ({ product, brand }: { product: any; brand?: string }) => {
+    const imageForAnimation = product.image || "/placeholder.svg";
+    const discountPercentage = Number(product.discountPercentage ?? product.discount ?? 0);
+    const comparePrice = Number(product.originalPrice ?? product.comparePrice ?? 0);
+    const hasDiscount = discountPercentage > 0 || (comparePrice > 0 && comparePrice > Number(product.price));
+    const inWishlist = isWishlisted(product.id);
+    const isProcessingWishlist = !!wishlistProcessing[product.id];
+    const availableColors = extractAvailableColors(product.filterValues);
+
+    return (
+      <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
+        <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
+          <Link to={`/product/${product.id}`} className="block w-full h-full">
+            <img
+              src={product.image || "/placeholder.svg"}
+              alt={product.name}
+              className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.src = "/placeholder.svg";
+              }}
+            />
+          </Link>
+
+          {hasDiscount && discountPercentage > 0 && (
+            <span className="absolute top-1 right-1 md:top-2 md:right-2 bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold z-10">
+              خصم {discountPercentage}%
+            </span>
+          )}
+
+          {!product.inStock && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg z-20">
+              <span className="text-white font-semibold text-sm md:text-base px-3 py-1 bg-black/20 rounded-lg">
+                نفدت الكمية
+              </span>
+            </div>
+          )}
+
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isProcessingWishlist) {
+                toggleWishlist(product.id);
+              }
+            }}
+            className={`absolute top-1 left-1 md:top-2 md:left-2 p-1.5 md:p-2 rounded-full shadow-md transition-colors z-10 ${inWishlist ? "bg-red-50 hover:bg-red-100" : "bg-white hover:bg-gray-50"}`}
+            aria-pressed={inWishlist}
+            aria-label={inWishlist ? "إزالة من المفضلة" : "إضافة إلى المفضلة"}
+            disabled={isProcessingWishlist}
+          >
+            <Heart
+              className={`w-3 h-3 md:w-4 md:h-4 ${inWishlist ? "text-red-500" : "text-gray-600"}`}
+              fill={inWishlist ? "currentColor" : "none"}
+            />
+          </button>
+        </div>
+
+        <Link to={`/product/${product.id}`} className="block flex-grow">
+          <h3 className="text-sm md:text-base font-semibold text-gray-800 line-clamp-2 hover:text-brand-blue transition-colors mb-1 md:mb-2 min-h-[2.5rem] md:min-h-[3rem]">
+            {product.name}
+          </h3>
+        </Link>
+
+        {availableColors.length > 0 && (
+          <div className="mb-2">
+            <div className="mb-1 text-[11px] font-medium text-gray-500">الألوان:</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {availableColors.slice(0, 4).map((color) => {
+                const colorHex = resolveColorHex(color);
+                return (
+                  <span
+                    key={`${product.id}-${color}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700"
+                    title={color}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 rounded-full border border-gray-300"
+                      style={{ backgroundColor: colorHex || "#e5e7eb" }}
+                    />
+                    <span>{color}</span>
+                  </span>
+                );
+              })}
+              {availableColors.length > 4 && (
+                <span className="text-[11px] text-gray-500">+{availableColors.length - 4}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mb-2 md:mb-4 flex-wrap">
+          <span className="text-lg md:text-xl font-bold text-brand-green">
+            {product.hasPriceRange ? `ابتداءً من: ${formatPrice(product.price)}` : formatPrice(product.price)} ₪
+          </span>
+          {comparePrice > Number(product.price) && (
+            <span className="text-sm md:text-base text-gray-500 line-through">
+              {formatPrice(comparePrice)} ₪
+            </span>
+          )}
+        </div>
+
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            if (!product.inStock) return;
+
+            if (product.hasVariants) {
+              window.location.href = `/product/${product.id}`;
+              return;
+            }
+
+            triggerAnimation(e.currentTarget, {
+              image: imageForAnimation,
+              name: product.name,
+            });
+
+            addItem({
+              id: product.id,
+              name: product.name,
+              price: product.price,
+              original_price: product.originalPrice || product.comparePrice,
+              discount_percentage: discountPercentage,
+              image: imageForAnimation,
+              brand: brand || product.brand || "متنوع",
+            });
+          }}
+          className={`w-full py-1.5 md:py-2 rounded-lg transition-colors text-sm md:text-base font-medium shadow-sm ${
+            product.inStock ? "bg-brand-blue text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500 cursor-not-allowed"
+          }`}
+          disabled={!product.inStock}
+        >
+          {product.inStock ? "أضف للسلة" : "نفدت الكمية"}
+        </button>
+      </div>
+    );
+  };
 
   // Get social media links for sameAs
   const socialLinks = [
@@ -378,7 +685,7 @@ const Index = () => {
 
 
       {/* Hero Slider Section - only shows when slider items exist */}
-      {sliderItems.length > 0 && (
+      {isHomepageSectionVisible("hero_slider") && sliderItems.length > 0 && (
         <section className="relative w-full overflow-hidden">
           <div className="w-full px-4 md:px-0 mt-4 md:mt-0">
             <div className="rounded-2xl md:rounded-none overflow-hidden shadow-md md:shadow-none relative z-0 transform-gpu">
@@ -455,6 +762,7 @@ const Index = () => {
       )}
 
       {/* Section 1: Main Categories */}
+      {isHomepageSectionVisible("main_categories") && (
       <section className="pt-8 pb-4 md:pt-12 md:pb-12 bg-transparent">
         <div className="container mx-auto px-4">
           <div className="text-center mb-6 md:mb-10">
@@ -514,8 +822,10 @@ const Index = () => {
           </Link>
         </div>
       </section>
+      )}
 
       {/* Section 2: Brand Categories */}
+      {isHomepageSectionVisible("brand_categories") && (
       <section className="py-6 md:py-12 bg-gradient-to-br from-gray-50 via-emerald-50 to-teal-50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-4 md:mb-10">
@@ -580,8 +890,10 @@ const Index = () => {
           )}
         </div>
       </section>
+      )}
 
       {/* Section 3: Featured Offers */}
+      {isHomepageSectionVisible("featured_offers") && (
       <section className="py-4 md:py-8 bg-white">
         <div className="container mx-auto px-4">
           <div className="text-center mb-4 md:mb-8">
@@ -590,109 +902,9 @@ const Index = () => {
           </div>
 
           {featuredOffers.length > 0 ? (
-            <div className="product-grid grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+            <div className="product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-6">
               {featuredOffers.map((product) => (
-                <div
-                  key={product.id}
-                  className="group bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100"
-                >
-                  <Link to={`/product/${product.id}`} className="block" aria-label={product.name}>
-                    <div className="relative p-2 md:p-4">
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        width="300"
-                        height="300"
-                        className="w-full h-32 md:h-48 object-cover rounded-xl group-hover:scale-105 transition-transform duration-300"
-                      />
-
-                      {/* Badges */}
-                      <div className="absolute top-3 right-3 md:top-6 md:right-6 flex flex-col gap-1 md:gap-2">
-                        {product.originalPrice && product.originalPrice > product.price ? (
-                          <span className="bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold">
-                            خصم {(product.originalPrice - product.price).toLocaleString()} ₪
-                          </span>
-                        ) : null}
-                        {product.isNew ? (
-                          <span className="bg-green-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold">
-                            جديد
-                          </span>
-                        ) : null}
-                        {product.isBestSeller ? (
-                          <span className="bg-emerald-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold">
-                            الأكثر مبيعاً
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <button className="absolute top-3 left-3 md:top-6 md:left-6 p-1.5 md:p-2 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors">
-                        <Heart className="w-4 h-4 md:w-5 md:h-5 text-gray-600" />
-                      </button>
-                    </div>
-                  </Link>
-
-                  <div className="p-3 md:p-6">
-                    <Link to={`/product/${product.id}`} className="block">
-                      <h3 className="font-bold text-gray-800 mb-1 md:mb-2 text-sm md:text-base line-clamp-2 group-hover:text-emerald-600 transition-colors">
-                        {product.name}
-                      </h3>
-                    </Link>
-
-                    <div className="flex items-center gap-1 md:gap-2 mb-2 md:mb-3">
-                      <div className="flex items-center">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`w-3 h-3 md:w-4 md:h-4 ${i < Math.floor(product.rating)
-                              ? "text-yellow-400 fill-current"
-                              : "text-gray-300"
-                              }`}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-xs md:text-sm text-gray-600">({product.reviews})</span>
-                    </div>
-
-                    <div className="flex items-center justify-between mb-3 md:mb-4 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg md:text-2xl font-bold text-emerald-600">
-                          {product.hasPriceRange ? `ابتداءً من: ${product.price}` : product.price} ₪
-                        </span>
-                        {product.originalPrice && product.originalPrice > 0 ? (
-                          <span className="text-xs md:text-sm text-gray-500 line-through">{product.originalPrice} ₪</span>
-                        ) : null}
-                      </div>
-                      <span className={`text-[10px] md:text-xs px-2 py-1 rounded-full ${product.inStock === false ? 'text-red-500 bg-red-50' : 'text-gray-500 bg-gray-100'}`}>
-                        {product.stockStatus}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (product.hasVariants) {
-                          window.location.href = `/product/${product.id}`;
-                          return;
-                        }
-                        triggerAnimation(e.currentTarget, {
-                          image: product.image,
-                          name: product.name,
-                        });
-                        addItem({
-                          id: product.id,
-                          name: product.name,
-                          price: product.price,
-                          image: product.image,
-                          brand: "متنوع",
-                        });
-                      }}
-                      className={`w-full text-white py-2 md:py-3 rounded-lg md:rounded-xl transition-colors font-semibold text-sm md:text-base ${product.inStock === false ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                      disabled={product.inStock === false}
-                    >
-                      {product.inStock === false ? 'نفذت الكمية' : 'أضف للسلة'}
-                    </button>
-                  </div>
-                </div>
+                <HomeProductCard key={product.id} product={product} brand="متنوع" />
               ))}
             </div>
           ) : (
@@ -712,8 +924,10 @@ const Index = () => {
           </div>
         </div>
       </section>
+      )}
 
       {/* Section 4: Latest Products */}
+      {isHomepageSectionVisible("latest_products") && (
       <section className="py-4 md:py-8 bg-gradient-to-br from-emerald-50 to-teal-50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-4 md:mb-8">
@@ -722,100 +936,9 @@ const Index = () => {
           </div>
 
           {latestProductsData.length > 0 ? (
-            <div className="product-grid grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-6">
               {latestProductsData.map((product) => (
-                <div
-                  key={product.id}
-                  className="group bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden"
-                >
-                  <Link to={`/product/${product.id}`} className="block" aria-label={product.name}>
-                    <div className="relative p-4">
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        width="300"
-                        height="300"
-                        className="w-full h-40 object-contain bg-white rounded-xl group-hover:scale-105 transition-transform duration-300"
-                      />
-                      {product.isNew ? (
-                        <span className="absolute top-6 right-6 bg-gradient-to-r from-green-400 to-green-500 text-white px-3 py-1 rounded-full text-sm font-bold">
-                          جديد
-                        </span>
-                      ) : null}
-                      {product.originalPrice && product.originalPrice > product.price ? (
-                        <span className="absolute top-6 right-6 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold">
-                          خصم {(product.originalPrice - product.price).toLocaleString()} ₪
-                        </span>
-                      ) : null}
-
-                      <button className="absolute top-6 left-6 p-2 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors">
-                        <Heart className="w-5 h-5 text-gray-600" />
-                      </button>
-                    </div>
-                  </Link>
-
-                  <div className="p-6">
-                    <Link to={`/product/${product.id}`} className="block">
-                      <h3 className="font-bold text-gray-800 mb-2 group-hover:text-emerald-600 transition-colors">
-                        {product.name}
-                      </h3>
-                    </Link>
-
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="flex items-center">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`w-4 h-4 ${i < Math.floor(product.rating)
-                              ? "text-yellow-400 fill-current"
-                              : "text-gray-300"
-                              }`}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-sm text-gray-600">({product.reviews})</span>
-                    </div>
-
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-2xl font-bold text-emerald-600">
-                        {product.hasPriceRange ? `ابتداءً من: ${product.price}` : product.price} ₪
-                      </span>
-                      <span className={`text-sm px-2 py-1 rounded-full ${product.inStock === false ? 'text-red-500 bg-red-50' : 'text-gray-500 bg-gray-100'}`}>
-                        {product.stockStatus}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (product.hasVariants) {
-                            window.location.href = `/product/${product.id}`;
-                            return;
-                          }
-                          triggerAnimation(e.currentTarget, {
-                            image: product.image,
-                            name: product.name,
-                          });
-                          addItem({
-                            id: product.id,
-                            name: product.name,
-                            price: product.price,
-                            image: product.image,
-                            brand: product.brand,
-                          });
-                        }}
-                        className={`flex-1 text-white py-3 rounded-xl transition-colors font-semibold ${product.inStock === false ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                        disabled={product.inStock === false}
-                      >
-                        {product.inStock === false ? 'نفذت الكمية' : 'أضف للسلة'}
-                      </button>
-                      <button className="p-3 bg-white text-emerald-600 rounded-xl border border-emerald-100 hover:border-emerald-300 transition-colors">
-                        <Heart className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <HomeProductCard key={product.id} product={product} brand={product.brand} />
               ))}
             </div>
           ) : (
@@ -835,55 +958,72 @@ const Index = () => {
           </div>
         </div>
       </section>
+      )}
 
       {/* Newsletter Section */}
+      {isHomepageSectionVisible("newsletter") && (
       <section className="py-12 bg-emerald-50 text-emerald-900 border-t border-emerald-100">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-2xl md:text-3xl font-bold mb-3 text-emerald-900">اشترك في نشرتنا الإخبارية</h2>
           <p className="text-base md:text-lg text-emerald-700 mb-8 max-w-2xl mx-auto">
             كن أول من يعلم بالعروض الجديدة والمنتجات الحصرية
           </p>
-          <div className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
-            <input
-              type="email"
-              placeholder="أدخل بريدك الإلكتروني"
-              className="flex-1 px-5 py-3 rounded-full text-gray-800 bg-white border border-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
-            />
-            <button className="bg-emerald-600 text-white px-8 py-3 rounded-full font-bold hover:bg-emerald-700 transition-colors shadow-md w-full sm:w-auto">
-              اشتراك
-            </button>
-          </div>
+          <form onSubmit={handleNewsletterSubscribe} className="max-w-md mx-auto">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="email"
+                value={newsletterEmail}
+                onChange={(e) => setNewsletterEmail(e.target.value)}
+                placeholder="أدخل بريدك الإلكتروني"
+                className="flex-1 px-5 py-3 rounded-full text-gray-800 bg-white border border-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+              />
+              <button
+                type="submit"
+                disabled={newsletterLoading}
+                className="bg-emerald-600 text-white px-8 py-3 rounded-full font-bold hover:bg-emerald-700 transition-colors shadow-md w-full sm:w-auto disabled:opacity-60"
+              >
+                {newsletterLoading ? "جاري الاشتراك..." : "اشتراك"}
+              </button>
+            </div>
+            {newsletterMessage && (
+              <p className={`mt-3 text-sm ${newsletterMessageType === "success" ? "text-emerald-700" : "text-rose-600"}`}>
+                {newsletterMessage}
+              </p>
+            )}
+          </form>
         </div>
       </section>
+      )}
 
       {/* Features Section */}
-      <section className="py-10 bg-white border-t border-gray-100">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 p-4 rounded-2xl hover:bg-green-50/50 transition-colors">
-              <Truck className="w-10 h-10 text-emerald-600 flex-shrink-0" />
-              <div className="text-center md:text-right">
-                <h3 className="text-lg font-bold text-gray-800 mb-1">شحن مجاني</h3>
-                <p className="text-gray-500 text-sm font-medium">للطلبات أكثر من 500 شيكل</p>
-              </div>
-            </div>
-            <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 p-4 rounded-2xl hover:bg-green-50/50 transition-colors">
-              <Shield className="w-10 h-10 text-emerald-600 flex-shrink-0" />
-              <div className="text-center md:text-right">
-                <h3 className="text-lg font-bold text-gray-800 mb-1">ضمان شامل</h3>
-                <p className="text-gray-500 text-sm font-medium">على جميع المنتجات</p>
-              </div>
-            </div>
-            <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 p-4 rounded-2xl hover:bg-green-50/50 transition-colors">
-              <Clock className="w-10 h-10 text-emerald-600 flex-shrink-0" />
-              <div className="text-center md:text-right">
-                <h3 className="text-lg font-bold text-gray-800 mb-1">خدمة 24/7</h3>
-                <p className="text-gray-500 text-sm font-medium">دعم فني متواصل</p>
-              </div>
+      {isHomepageSectionVisible("homepage_features") && homepageFeatures.length > 0 && (
+        <section className="py-10 bg-white border-t border-gray-100">
+          <div className="container mx-auto px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 max-w-6xl mx-auto">
+              {homepageFeatures.slice(0, 4).map((feature: any, index: number) => {
+                const Icon = featureIcons[String(feature.icon || '').toLowerCase()] || Shield;
+
+                return (
+                  <div
+                    key={`${feature.title || "feature"}-${index}`}
+                    className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 p-4 rounded-2xl hover:bg-green-50/50 transition-colors"
+                  >
+                    <Icon className="w-10 h-10 text-emerald-600 flex-shrink-0" />
+                    <div className="text-center md:text-right">
+                      <h3 className="text-lg font-bold text-gray-800 mb-1">
+                        {feature.title}
+                      </h3>
+                      <p className="text-gray-500 text-sm font-medium">
+                        {feature.description}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="bg-gray-50 border-t border-gray-200 pt-16 pb-8">

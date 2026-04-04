@@ -114,11 +114,9 @@ const OrderSuccess = () => {
                                 <span className="line-through">{(item.original_price * item.quantity).toLocaleString()} ₪</span>
                                 <span className="mr-1">(السعر قبل الخصم)</span>
                               </div>
-                              {item.discount_amount && (
-                                <span className="text-[10px] text-red-500 font-bold block">
-                                  وفرت { (item.original_price - item.price).toLocaleString() } شيكل في هذا الصنف
-                                </span>
-                              )}
+                              <span className="text-[10px] text-red-500 font-bold block">
+                                وفرت { ((item.original_price - item.price) * item.quantity).toLocaleString() } شيكل في هذا الصنف
+                              </span>
                             </div>
                           )}
                         </div>
@@ -155,11 +153,16 @@ const OrderSuccess = () => {
                 <span className="text-brand-orange font-semibold">{orderStatus}</span>
               </div>
 
-              {items.some((item: any) => item.discount_amount > 0) && (
+              {items.some((item: any) => item.original_price && item.original_price > item.price) && (
                 <div className="flex justify-between py-3 text-red-600 bg-red-50 px-2 rounded">
                   <span className="font-semibold">إجمالي التوفير:</span>
                   <span className="font-bold">
-                    {items.reduce((sum: number, item: any) => sum + (Number(item.discount_amount) * item.quantity), 0).toLocaleString()} شيكل
+                    {items.reduce((sum: number, item: any) => {
+                      if (item.original_price && item.original_price > item.price) {
+                        return sum + ((item.original_price - item.price) * item.quantity);
+                      }
+                      return sum;
+                    }, 0).toLocaleString()} شيكل
                   </span>
                 </div>
               )}

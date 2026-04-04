@@ -6,8 +6,7 @@ import Header from "../components/Header";
 const Cart = () => {
   const { state, updateQuantity, removeItem, clearCart } = useCart();
 
-  const shippingCost = state.total > 500 ? 0 : 25;
-  const finalTotal = state.total + shippingCost;
+  const finalTotal = state.total;
 
   if (state.items.length === 0) {
     return (
@@ -63,14 +62,18 @@ const Cart = () => {
                 {state.items.map((item) => (
                   <div key={`${item.id}-${item.variant_id || ''}`} className="border border-gray-200 rounded-lg p-4">
                     <div className="flex gap-4">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-20 h-20 object-cover rounded-lg"
-                      />
+                      <Link to={`/product/${item.id}`} className="shrink-0">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-20 h-20 object-cover rounded-lg"
+                        />
+                      </Link>
 
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-800 mb-1">{item.name}</h3>
+                        <Link to={`/product/${item.id}`} className="block group">
+                          <h3 className="font-semibold text-gray-800 mb-1 group-hover:text-brand-green group-hover:underline transition-colors">{item.name}</h3>
+                        </Link>
                         <p className="text-sm text-gray-600 mb-2">{item.brand}</p>
 
                         {item.selected_options && Object.keys(item.selected_options).length > 0 && (
@@ -110,7 +113,8 @@ const Cart = () => {
                           </span>
                           <button
                             onClick={() => updateQuantity(item.id, item.quantity + 1, item.variant_id)}
-                            className="p-2 hover:bg-gray-100 rounded-l-lg"
+                            className={`p-2 rounded-l-lg ${item.manage_stock && item.quantity >= (item.stock_quantity || 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                            disabled={item.manage_stock && item.quantity >= (item.stock_quantity || 0)}
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -148,15 +152,10 @@ const Cart = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>الشحن</span>
-                  <span className={shippingCost === 0 ? "text-brand-green" : ""}>
-                    {shippingCost === 0 ? "مجاني" : `${shippingCost} شيكل`}
+                  <span className="text-gray-600 text-sm">
+                    يتم احتسابه عند اختيار المدينة
                   </span>
                 </div>
-                {state.total <= 500 && (
-                  <p className="text-sm text-brand-orange">
-                    أضف {500 - state.total} شيكل أكثر للحصول على شحن مجاني
-                  </p>
-                )}
                 <div className="border-t pt-3 font-bold text-lg flex justify-between">
                   <span>المجموع الكلي</span>
                   <span className="text-brand-green">{finalTotal} شيكل</span>

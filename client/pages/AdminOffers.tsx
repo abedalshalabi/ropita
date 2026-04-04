@@ -67,6 +67,7 @@ interface Product {
   id: number;
   name: string;
   slug: string;
+  sku?: string;
   price: number;
   original_price?: number;
   images?: Array<string | { image_url?: string; image_path?: string }>;
@@ -81,6 +82,7 @@ const AdminOffers = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productSearch, setProductSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState(15);
 
@@ -676,29 +678,56 @@ const AdminOffers = () => {
 
                 {/* Products Selection */}
                 {formData.type !== 'bundle' && (
-                  <div>
-                    <Label>المنتجات *</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        const productId = parseInt(value);
-                        if (!formData.products.includes(productId)) {
-                          setFormData({ ...formData, products: [...formData.products, productId] });
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="اختر منتج..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products
-                          .filter(p => !formData.products.includes(p.id))
-                          .map((product) => (
-                            <SelectItem key={product.id} value={product.id.toString()}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>المنتجات *</Label>
+                      <div className="flex gap-2 mb-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                          <Input
+                            placeholder="بحث باسم المنتج أو SKU..."
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            className="pl-8"
+                          />
+                        </div>
+                      </div>
+                      <Select
+                        onValueChange={(value) => {
+                          const productId = parseInt(value);
+                          if (!formData.products.includes(productId)) {
+                            setFormData({ ...formData, products: [...formData.products, productId] });
+                          }
+                          setProductSearch(""); // Reset search after selection
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="اختر من المنتجات المصفاة..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {products
+                            .filter(p => !formData.products.includes(p.id))
+                            .filter(p => 
+                              p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+                              (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+                            )
+                            .map((product) => (
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                <div className="flex flex-col">
+                                  <span>{product.name}</span>
+                                  {product.sku && <span className="text-[10px] text-gray-400">SKU: {product.sku}</span>}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          {products.filter(p => !formData.products.includes(p.id)).filter(p => 
+                            p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+                            (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+                          ).length === 0 && (
+                            <div className="p-2 text-center text-sm text-gray-500">لا توجد منتجات تطابق البحث</div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="mt-2 space-y-2">
                       {formData.products.map((productId) => {
                         const product = products.find(p => p.id === productId);
@@ -723,32 +752,59 @@ const AdminOffers = () => {
 
                 {/* Bundle Items */}
                 {formData.type === 'bundle' && (
-                  <div>
-                    <Label>عناصر الباقة *</Label>
-                    <Select
-                      onValueChange={(value) => {
-                        const productId = parseInt(value);
-                        if (!formData.bundle_items.find(item => item.product_id === productId)) {
-                          setFormData({
-                            ...formData,
-                            bundle_items: [...formData.bundle_items, { product_id: productId, quantity: 1 }],
-                          });
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="اختر منتج..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products
-                          .filter(p => !formData.bundle_items.find(item => item.product_id === p.id))
-                          .map((product) => (
-                            <SelectItem key={product.id} value={product.id.toString()}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>عناصر الباقة *</Label>
+                      <div className="flex gap-2 mb-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                          <Input
+                            placeholder="بحث باسم المنتج أو SKU..."
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            className="pl-8"
+                          />
+                        </div>
+                      </div>
+                      <Select
+                        onValueChange={(value) => {
+                          const productId = parseInt(value);
+                          if (!formData.bundle_items.find(item => item.product_id === productId)) {
+                            setFormData({
+                              ...formData,
+                              bundle_items: [...formData.bundle_items, { product_id: productId, quantity: 1 }],
+                            });
+                          }
+                          setProductSearch(""); // Reset search after selection
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="اختر من المنتجات المصفاة..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {products
+                            .filter(p => !formData.bundle_items.find(item => item.product_id === p.id))
+                            .filter(p => 
+                              p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+                              (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+                            )
+                            .map((product) => (
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                <div className="flex flex-col">
+                                  <span>{product.name}</span>
+                                  {product.sku && <span className="text-[10px] text-gray-400">SKU: {product.sku}</span>}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          {products.filter(p => !formData.bundle_items.find(item => item.product_id === p.id)).filter(p => 
+                            p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+                            (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+                          ).length === 0 && (
+                            <div className="p-2 text-center text-sm text-gray-500">لا توجد منتجات تطابق البحث</div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="mt-2 space-y-2">
                       {formData.bundle_items.map((item, index) => {
                         const product = products.find(p => p.id === item.product_id);
