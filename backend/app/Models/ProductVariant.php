@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductVariant extends Model
 {
@@ -12,16 +14,23 @@ class ProductVariant extends Model
         'price',
         'stock_quantity',
         'sku',
+        'images',
     ];
 
     protected $casts = [
         'variant_values' => 'array',
         'price' => 'decimal:2',
         'stock_quantity' => 'integer',
+        'images' => 'array',
     ];
 
-    public function product()
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function images(): HasMany
+    {
+        return $this->hasMany(ProductImage::class);
     }
 }

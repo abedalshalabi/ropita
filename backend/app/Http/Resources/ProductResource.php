@@ -41,7 +41,41 @@ class ProductResource extends JsonResource
             'features' => $this->features,
             'specifications' => $this->specifications,
             'filter_values' => $this->filter_values,
-            'variants' => $this->relationLoaded('variants') ? $this->variants : $this->variants()->get(),
+            'variants' => ($this->relationLoaded('variants') ? $this->variants : $this->variants()->get())->map(function ($variant) {
+                $variantImages = $variant->images;
+                if (is_array($variantImages)) {
+                    $variantImages = array_map(function ($image) {
+                        if (is_object($image)) {
+                            $image = (array) $image;
+                        }
+                        if (is_array($image)) {
+                            $imagePath = $image['image_path'] ?? $image['path'] ?? '';
+                            $imageUrl = $image['image_url'] ?? '';
+                            if (empty($imageUrl) && !empty($imagePath)) {
+                                $imageUrl = asset('storage/' . $imagePath);
+                            }
+                            return [
+                                'image_path' => $imagePath,
+                                'image_url' => $imageUrl,
+                                'alt_text' => $image['alt_text'] ?? null,
+                                'is_primary' => (bool) ($image['is_primary'] ?? false),
+                                'sort_order' => (int) ($image['sort_order'] ?? 0),
+                            ];
+                        }
+                        return $image;
+                    }, $variantImages);
+                }
+                
+                return [
+                    'id' => $variant->id,
+                    'product_id' => $variant->product_id,
+                    'variant_values' => $variant->variant_values,
+                    'price' => $variant->price,
+                    'stock_quantity' => $variant->stock_quantity,
+                    'sku' => $variant->sku,
+                    'images' => $variantImages,
+                ];
+            }),
             'rating' => $this->rating ? (float) $this->rating : 0.0,
             'reviews_count' => $this->reviews_count,
             'views_count' => $this->views_count,

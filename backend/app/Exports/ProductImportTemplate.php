@@ -46,7 +46,11 @@ class ProductImportMainSheet implements
             'sku', 'name', 'slug', 'description', 'short_description', 
             'price', 'original_price', 'cost_price', 'stock_quantity',
             'categories', 'brand_name_or_id', 'is_active', 'is_featured',
-            'image_urls', 'image_filenames', 'stock_status', 'variant_sku', 'variant_price', 'variant_stock'
+            'show_description', 'show_specifications',
+            'image_urls', 'image_filenames', 
+            'size_guide_image_urls', 'size_guide_image_filenames',
+            'stock_status', 
+            'variant_sku', 'variant_price', 'variant_stock', 'variant_image_urls', 'variant_image_filenames'
         ];
 
         $filters = Filter::orderBy('name')->get(['name']);
@@ -60,13 +64,18 @@ class ProductImportMainSheet implements
                 array_fill(0, 9, 'Fill values below'),
                 ['Pick names from list'],
                 ['Pick brand from list'],
-                array_fill(0, 3, 'Fill values'), // is_active, is_featured, image_urls
-                ['Image Filenames (Comma separated)'],
+                array_fill(0, 4, 'Fill true/false'), // is_active, is_featured, show_desc, show_specs
+                ['Main Image URLs (Comma separated)'],
+                ['Main Image Filenames (Comma separated)'],
+                ['Size Guide URLs (Comma separated)'],
+                ['Size Guide Filenames (Comma separated)'],
                 ['Stock Status (in_stock, out_of_stock, stock_based)'],
-                ['Variant SKU'],
-                ['Variant Price'],
+                ['Variant SKU (Unique)'],
+                ['Variant Price (Empty = same as product)'],
                 ['Variant Stock'],
-                $filters->map(fn($f) => "Lights up if required")->toArray()
+                ['Variant Image URLs (Comma separated)'],
+                ['Variant Image Filenames (Comma separated)'],
+                $filters->map(fn($f) => "Value for variant")->toArray()
             )
         ];
     }
@@ -95,19 +104,18 @@ class ProductImportMainSheet implements
                 $objValK->setFormula1("'Brands'!\$A\$2:\$A\$200");
                 $objValK->setPromptTitle('Pick brand');
 
-                // 3. Stock Status Dropdown (Column P)
-                $objValP = $sheet->getDataValidation('P3:P1000');
-                $objValP->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                $objValP->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
-                $objValP->setAllowBlank(false);
-                $objValP->setShowDropDown(true);
-                $objValP->setFormula1("'StockStatuses'!\$A\$2:\$A\$4"); // in_stock, out_of_stock, stock_based (3 items)
-                $objValP->setPromptTitle('Pick stock status');
+                // 3. Stock Status Dropdown (Column T)
+                $objValT = $sheet->getDataValidation('T3:T1000');
+                $objValT->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+                $objValT->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
+                $objValT->setAllowBlank(false);
+                $objValT->setShowDropDown(true);
+                $objValT->setFormula1("'StockStatuses'!\$A\$2:\$A\$4"); 
+                $objValT->setPromptTitle('Pick stock status');
 
-                // 4. Filters Columns (S onwards)
-                // Columns: A=sku, B=name, C=slug, D=desc, E=short_desc, F=price, G=orig, H=cost, I=qty, J=cats, K=brand, L=active, M=feat, N=urls, O=filenames, P=stock_status, Q=vsku, R=vprice, S=vstock, T... filters
+                // 4. Filters Columns (Z onwards)
                 $filters = Filter::orderBy('name')->get();
-                $startColIndex = 20; // Column T (1-indexed)
+                $startColIndex = 26; // Column Z (1-indexed)
 
                 foreach ($filters as $index => $filter) {
                     $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startColIndex + $index);
@@ -131,8 +139,8 @@ class ProductImportMainSheet implements
                     $sheet->getStyle($colLetter . '3:' . $colLetter . '1000')->setConditionalStyles([$conditional]);
                 }
 
-                // Boolean dropdowns (Active/Featured/ManageStock)
-                foreach (['L', 'M'] as $col) {
+                // Boolean dropdowns (Active/Featured/ShowDesc/ShowSpecs)
+                foreach (['L', 'M', 'N', 'O'] as $col) {
                     $objValidation = $sheet->getDataValidation($col . '3:' . $col . '1000');
                     $objValidation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
                     $objValidation->setFormula1('"true,false"');

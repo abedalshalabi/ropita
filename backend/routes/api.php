@@ -177,6 +177,7 @@ Route::prefix('v1')->group(function () {
               Route::post('/admin/products/bulk-discount', [ProductController::class, 'bulkApplyDiscount']);
               Route::post('/admin/products/bulk-status', [ProductController::class, 'bulkUpdateStatus']);
               Route::post('/admin/products/bulk-delete', [ProductController::class, 'bulkDestroy']);
+              Route::post('/admin/products/bulk-offers', [ProductController::class, 'bulkUpdateOffers']);
               Route::get('/admin/products', [ProductController::class, 'adminIndex']);
               Route::get('/admin/products/{product}', [ProductController::class, 'adminShow']);
               Route::post('/admin/products', [ProductController::class, 'store']);

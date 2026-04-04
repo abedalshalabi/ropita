@@ -291,6 +291,29 @@ const AdminProducts = () => {
     }
   };
 
+  const handleBulkOffersUpdate = async (showInOffers: boolean) => {
+    if (selectedProducts.length === 0) return;
+
+    const actionText = showInOffers ? "إظهار في العروض" : "إخفاء من العروض";
+
+    if (window.confirm(`هل أنت متأكد من ${actionText} لـ ${selectedProducts.length} منتج؟`)) {
+      try {
+        await adminProductsAPI.bulkUpdateOffers(selectedProducts, showInOffers);
+        await fetchProducts();
+        setSelectedProducts([]);
+
+        Swal.fire({
+          icon: 'success',
+          title: 'تم بنجاح',
+          text: `تم ${actionText} بنجاح`,
+          confirmButtonText: 'حسناً'
+        });
+      } catch (err: any) {
+        setError(err.response?.data?.message || `فشل في ${actionText}`);
+      }
+    }
+  };
+
   const handleBulkApplyDiscount = async () => {
     if (selectedProducts.length === 0) return;
     if (bulkDiscountPercentage < 0 || bulkDiscountPercentage > 100) {
@@ -952,6 +975,20 @@ const AdminProducts = () => {
                   >
                     <Clock className="w-4 h-4 mr-2" />
                     تعطيل المحدد
+                  </button>
+                  <button
+                    onClick={() => handleBulkOffersUpdate(true)}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center"
+                  >
+                    <Zap className="w-4 h-4 mr-2" />
+                    إظهار في العروض
+                  </button>
+                  <button
+                    onClick={() => handleBulkOffersUpdate(false)}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 flex items-center"
+                  >
+                    <Zap className="w-4 h-4 mr-2 opacity-50" />
+                    إخفاء من العروض
                   </button>
                   <button
                     onClick={handleBulkDelete}

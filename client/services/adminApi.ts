@@ -229,6 +229,14 @@ export const adminProductsAPI = {
     return response.data;
   },
 
+  async bulkUpdateOffers(productIds: number[], showInOffers: boolean) {
+    const response = await adminApi.post('/v1/admin/products/bulk-offers', {
+      product_ids: productIds,
+      show_in_offers: showInOffers,
+    });
+    return response.data;
+  },
+
   async importProducts(formData: FormData) {
     const response = await adminApi.post('/v1/admin/products/import', formData, {
       headers: {

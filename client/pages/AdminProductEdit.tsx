@@ -98,6 +98,11 @@ export interface Variant {
   price: string | number | null;
   stock_quantity: number | string;
   sku: string | null;
+  images?: any[];
+  image_files?: File[];
+  image_previews?: string[];
+  image_urls?: string[];
+  existing_images?: any[];
 }
 
 interface Category {
@@ -253,7 +258,11 @@ const AdminProductEdit: React.FC = () => {
           });
           return normalized;
         })(),
-        variants: productResponse.data.variants || [],
+        variants: productResponse.data.variants?.map((v: any) => ({
+          ...v,
+          image_previews: v.images?.map((img: any) => img.image_url) || [],
+          existing_images: v.images || []
+        })) || [],
         cover_image: productResponse.data.cover_image || null,
         show_description: productResponse.data.show_description !== undefined ? productResponse.data.show_description : true,
         show_specifications: productResponse.data.show_specifications !== undefined ? productResponse.data.show_specifications : true,
@@ -726,6 +735,59 @@ const AdminProductEdit: React.FC = () => {
     });
   };
 
+  const handleVariantImageChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const newVariants = [...formData.variants];
+    const variant = { ...newVariants[index] };
+    
+    if (!variant.image_files) variant.image_files = [];
+    if (!variant.image_previews) variant.image_previews = [];
+    
+    variant.image_files = [...variant.image_files, ...files];
+    
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          variant.image_previews = [...(variant.image_previews || []), result];
+          newVariants[index] = variant;
+          setFormData(prev => ({ ...prev, variants: [...newVariants] }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemoveVariantImage = (variantIndex: number, imageIndex: number) => {
+    setFormData(prev => {
+      const newVariants = [...prev.variants];
+      const variant = { ...newVariants[variantIndex] };
+      
+      // If it's an existing image (from backend)
+      const isExisting = variant.existing_images && imageIndex < variant.existing_images.length;
+      
+      if (isExisting) {
+        variant.existing_images = variant.existing_images?.filter((_, i) => i !== imageIndex);
+      } else {
+        // It's a new file upload
+        const fileIdx = variant.existing_images ? imageIndex - variant.existing_images.length : imageIndex;
+        if (variant.image_files) {
+          variant.image_files = variant.image_files.filter((_, i) => i !== fileIdx);
+        }
+      }
+
+      if (variant.image_previews) {
+        variant.image_previews = variant.image_previews.filter((_, i) => i !== imageIndex);
+      }
+      
+      newVariants[variantIndex] = variant;
+      return { ...prev, variants: newVariants };
+    });
+  };
+
   const handleDeleteVariant = async (index: number) => {
     const variant = formData.variants[index];
     
@@ -913,7 +975,25 @@ const AdminProductEdit: React.FC = () => {
       uploadFormData.append('filter_values', JSON.stringify(cleanedFilterValues));
 
       if (formData.variants && formData.variants.length > 0) {
-        uploadFormData.append('variants', JSON.stringify(formData.variants));
+        // Prepare variants for JSON sending (without File objects)
+        const variantsData = formData.variants.map(v => ({
+          variant_values: v.variant_values,
+          price: v.price,
+          stock_quantity: v.stock_quantity,
+          sku: v.sku,
+          image_urls: v.image_urls || [],
+          existing_images: v.existing_images || []
+        }));
+        uploadFormData.append('variants', JSON.stringify(variantsData));
+        
+        // Add variant image files
+        formData.variants.forEach((variant, vIdx) => {
+          if (variant.image_files && variant.image_files.length > 0) {
+            variant.image_files.forEach((file, fIdx) => {
+              uploadFormData.append(`variant_images_${vIdx}[${fIdx}]`, file);
+            });
+          }
+        });
       }
 
       // Handle images: send current images (those that should be kept) and new image files
@@ -931,14 +1011,10 @@ const AdminProductEdit: React.FC = () => {
       );
 
       // Send existing images that should be kept as JSON
-      if (existingImages.length > 0) {
-        uploadFormData.append('existing_images', JSON.stringify(existingImages));
-      }
+      uploadFormData.append('existing_images', JSON.stringify(existingImages));
 
       // Send new image URLs
-      if (newImageUrls.length > 0) {
-        uploadFormData.append('image_urls', JSON.stringify(newImageUrls));
-      }
+      uploadFormData.append('image_urls', JSON.stringify(newImageUrls));
 
       // Handle size guide images (existing + urls + files)
       const existingSizeGuideImages = formData.size_guide_images.filter((img): img is Exclude<typeof img, string> =>
@@ -1090,8 +1166,15 @@ const AdminProductEdit: React.FC = () => {
             });
             return normalized;
           })(),
-          variants: productResponse.data.variants || [],
-          cover_image: productResponse.data.cover_image || null
+          variants: productResponse.data.variants?.map((v: any) => ({
+            ...v,
+            image_previews: v.images?.map((img: any) => img.image_url) || [],
+            existing_images: v.images || []
+          })) || [],
+          cover_image: productResponse.data.cover_image || null,
+          show_in_offers: productResponse.data.show_in_offers || false,
+          show_description: productResponse.data.show_description !== undefined ? productResponse.data.show_description : true,
+          show_specifications: productResponse.data.show_specifications !== undefined ? productResponse.data.show_specifications : true,
         };
         setFormData(formDataToSet);
 
@@ -2304,30 +2387,31 @@ const AdminProductEdit: React.FC = () => {
                       <table className="min-w-full divide-y divide-gray-200 border">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">الخصائص</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">السعر</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">الكمية</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">SKU</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-10">إجراءات</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase font-bold">الخصائص</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase font-bold">السعر</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase font-bold">الكمية</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase font-bold">الصور</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase font-bold">SKU</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-10 font-bold">إجراءات</th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                           {formData.variants.map((variant, index) => (
-                            <tr key={index}>
+                            <tr key={index} className="hover:bg-gray-50/50">
                               <td className="px-3 py-2 text-sm text-gray-900">
                                 {Object.entries(variant.variant_values).map(([k, v]) => (
-                                  <span key={k} className="inline-block bg-gray-100 rounded px-2 py-1 m-1 text-xs">
-                                    {k}: {v}
+                                  <span key={k} className="inline-block bg-white border border-gray-100 rounded shadow-sm px-2 py-1 m-1 text-xs">
+                                    <span className="text-gray-500">{k}:</span> <span className="font-bold">{v}</span>
                                   </span>
                                 ))}
                               </td>
                               <td className="px-3 py-2">
                                 <Input 
                                   type="number" 
-                                  placeholder="السعر الأساسي" 
+                                  placeholder="0.00" 
                                   value={variant.price || ''} 
                                   onChange={(e) => handleVariantChange(index, 'price', e.target.value)}
-                                  className="w-24 h-8"
+                                  className="w-24 h-8 bg-white border-gray-100 focus:ring-emerald-500"
                                 />
                               </td>
                               <td className="px-3 py-2">
@@ -2335,15 +2419,51 @@ const AdminProductEdit: React.FC = () => {
                                   type="number" 
                                   value={variant.stock_quantity || ''} 
                                   onChange={(e) => handleVariantChange(index, 'stock_quantity', e.target.value)}
-                                  className="w-24 h-8"
+                                  className="w-24 h-8 bg-white border-gray-100 focus:ring-emerald-500"
                                 />
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex flex-col gap-2 min-w-[120px]">
+                                  <div className="flex flex-wrap gap-1">
+                                    {variant.image_previews?.map((preview, imgIdx) => (
+                                      <div key={imgIdx} className="relative w-8 h-8 group border rounded overflow-hidden bg-gray-50">
+                                        <img src={preview} className="w-full h-full object-cover" alt="" />
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleRemoveVariantImage(index, imgIdx)}
+                                          className="absolute inset-0 bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-[10px] bg-emerald-50 border-emerald-100 text-emerald-700 hover:bg-emerald-100"
+                                    onClick={() => document.getElementById(`variant-image-${index}`)?.click()}
+                                  >
+                                    <ImageIcon className="h-3 w-3 ml-1" />
+                                    إضافة صور
+                                  </Button>
+                                  <input
+                                    id={`variant-image-${index}`}
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => handleVariantImageChange(index, e)}
+                                  />
+                                </div>
                               </td>
                               <td className="px-3 py-2">
                                 <Input 
                                   type="text" 
                                   value={variant.sku || ''} 
                                   onChange={(e) => handleVariantChange(index, 'sku', e.target.value)}
-                                  className="w-32 h-8"
+                                  className="w-32 h-8 bg-white border-gray-100 focus:ring-emerald-500"
                                 />
                               </td>
                               <td className="px-3 py-2 text-center">

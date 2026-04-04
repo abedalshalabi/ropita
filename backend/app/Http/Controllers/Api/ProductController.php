@@ -495,17 +495,60 @@ class ProductController extends Controller
 
         // Save variants if provided
         if (isset($validated['variants']) && is_array($validated['variants'])) {
-            foreach ($validated['variants'] as $variantData) {
+            foreach ($validated['variants'] as $index => $variantData) {
                 // Determine stock quantity for variant (fall back to 0 if not provided)
                 $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
                 // If variant has its own price, use it, else null
                 $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
                 
+                // Handle variant images
+                $variantImages = [];
+                
+                // 1. Get variant image URLs if provided in JSON
+                if (isset($variantData['image_urls']) && is_array($variantData['image_urls'])) {
+                    foreach ($variantData['image_urls'] as $idx => $url) {
+                        if (filter_var($url, FILTER_VALIDATE_URL)) {
+                            $variantImages[] = [
+                                'image_path' => $url,
+                                'image_url' => $url,
+                                'alt_text' => null,
+                                'is_primary' => $idx === 0,
+                                'sort_order' => $idx,
+                            ];
+                        }
+                    }
+                }
+
+                // 2. Handle uploaded variant images: check for variant_images_{index}[]
+                $variantIndex = $index; 
+                $variantFiles = $request->file("variant_images_{$variantIndex}");
+                if ($variantFiles) {
+                    if (!is_array($variantFiles)) {
+                        $variantFiles = [$variantFiles];
+                    }
+                    
+                    foreach ($variantFiles as $vIdx => $vFile) {
+                        if ($vFile && $vFile->isValid()) {
+                            $filename = time() . "_var_{$variantIndex}_{$vIdx}_" . Str::random(10) . '.' . $vFile->getClientOriginalExtension();
+                            $path = $vFile->storeAs('products/variants', $filename, 'public');
+                            
+                            $variantImages[] = [
+                                'image_path' => $path,
+                                'image_url' => asset('storage/' . $path),
+                                'alt_text' => null,
+                                'is_primary' => count($variantImages) === 0,
+                                'sort_order' => count($variantImages),
+                            ];
+                        }
+                    }
+                }
+
                 $product->variants()->create([
                     'variant_values' => $variantData['variant_values'] ?? [],
                     'price' => $varPrice,
                     'stock_quantity' => $varStock,
                     'sku' => $variantData['sku'] ?? null,
+                    'images' => $variantImages,
                 ]);
             }
         }
@@ -635,6 +678,15 @@ class ProductController extends Controller
             $filename = time() . '_cover_' . Str::random(10) . '.' . $coverImage->getClientOriginalExtension();
             $path = $coverImage->storeAs('products/covers', $filename, 'public');
             $validated['cover_image'] = asset('storage/' . $path);
+        } elseif ($request->input('cover_image') === 'null' || ($request->has('cover_image') && $request->input('cover_image') === '')) {
+            // Delete old cover if exists locally
+            if ($product->cover_image && str_contains($product->cover_image, asset('storage/'))) {
+                $oldPath = str_replace(asset('storage/'), '', $product->cover_image);
+                if (Storage::disk('public')->exists($oldPath)) {
+                    Storage::disk('public')->delete($oldPath);
+                }
+            }
+            $validated['cover_image'] = null;
         } elseif ($request->has('cover_image_url')) {
             $validated['cover_image'] = $request->input('cover_image_url');
         }
@@ -840,17 +892,66 @@ class ProductController extends Controller
             $product->variants()->delete();
             
             // Create new variants
-            foreach ($validated['variants'] as $variantData) {
+            foreach ($validated['variants'] as $index => $variantData) {
                 // Determine stock quantity for variant (fall back to 0 if not provided)
                 $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
                 // If variant has its own price, use it, else null
                 $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
                 
+                // Handle variant images
+                $variantImages = [];
+                
+                // 1. Get existing variant images if provided
+                if (isset($variantData['existing_images']) && is_array($variantData['existing_images'])) {
+                    $variantImages = $variantData['existing_images'];
+                }
+
+                // 2. Get new variant image URLs if provided
+                if (isset($variantData['image_urls']) && is_array($variantData['image_urls'])) {
+                    $maxIdx = count($variantImages);
+                    foreach ($variantData['image_urls'] as $idx => $url) {
+                        if (filter_var($url, FILTER_VALIDATE_URL)) {
+                            $variantImages[] = [
+                                'image_path' => $url,
+                                'image_url' => $url,
+                                'alt_text' => null,
+                                'is_primary' => count($variantImages) === 0,
+                                'sort_order' => $maxIdx + $idx,
+                            ];
+                        }
+                    }
+                }
+
+                // 3. Handle uploaded variant images: check for variant_images_{index}[]
+                $variantIndex = $index; 
+                $variantFiles = $request->file("variant_images_{$variantIndex}");
+                if ($variantFiles) {
+                    if (!is_array($variantFiles)) {
+                        $variantFiles = [$variantFiles];
+                    }
+                    
+                    foreach ($variantFiles as $vIdx => $vFile) {
+                        if ($vFile && $vFile->isValid()) {
+                            $filename = time() . "_var_{$variantIndex}_{$vIdx}_" . Str::random(10) . '.' . $vFile->getClientOriginalExtension();
+                            $path = $vFile->storeAs('products/variants', $filename, 'public');
+                            
+                            $variantImages[] = [
+                                'image_path' => $path,
+                                'image_url' => asset('storage/' . $path),
+                                'alt_text' => null,
+                                'is_primary' => count($variantImages) === 0,
+                                'sort_order' => count($variantImages),
+                            ];
+                        }
+                    }
+                }
+
                 $product->variants()->create([
                     'variant_values' => $variantData['variant_values'] ?? [],
                     'price' => $varPrice,
                     'stock_quantity' => $varStock,
                     'sku' => $variantData['sku'] ?? null,
+                    'images' => $variantImages,
                 ]);
             }
         }
@@ -1182,6 +1283,31 @@ class ProductController extends Controller
             'is_active' => $isActive,
         ]);
     }
+
+    /**
+     * Bulk update show_in_offers status for selected products
+     */
+    public function bulkUpdateOffers(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'exists:products,id',
+            'show_in_offers' => 'required|boolean',
+        ]);
+
+        $productIds = $validated['product_ids'];
+        $showInOffers = $validated['show_in_offers'];
+
+        Product::whereIn('id', $productIds)->update([
+            'show_in_offers' => $showInOffers,
+        ]);
+
+        return response()->json([
+            'message' => 'Bulk offers status updated successfully',
+            'count' => count($productIds),
+            'show_in_offers' => $showInOffers,
+        ]);
+    }
     /**
      * Export an Excel template for product import with dynamic filter columns and dropdowns.
      */
@@ -1262,7 +1388,7 @@ class ProductController extends Controller
                 // If SKU matches last row, it's a variant for the SAME product
                 if ($sku === $lastSku && $currentProduct) {
                     // This is a Variant Row ($sku === $lastSku)
-                    $this->processVariantRow($currentProduct, $data);
+                    $this->processVariantRow($currentProduct, $data, $fileMap);
                     
                     // --- Filter Aggregation for Parent ---
                     $parentFilters = $currentProduct->filter_values ?: [];
@@ -1367,6 +1493,8 @@ class ProductController extends Controller
                     'brand_id' => $brandId,
                     'is_active' => filter_var($data['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN),
                     'is_featured' => filter_var($data['is_featured'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'show_description' => filter_var($data['show_description'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                    'show_specifications' => filter_var($data['show_specifications'] ?? true, FILTER_VALIDATE_BOOLEAN),
                     'filter_values' => $filterValues, 
                     'stock_status' => !empty($data['stock_status']) ? $data['stock_status'] : ((int)($data['stock_quantity'] ?? 0) > 0 ? 'in_stock' : 'out_of_stock'),
                     'in_stock' => (int)($data['stock_quantity'] ?? 0) > 0,
@@ -1390,10 +1518,11 @@ class ProductController extends Controller
 
                 // Handle Images for the product
                 $this->processProductImages($product, $data, $fileMap);
+                $this->handleBulkSizeGuideImages($product, $data, $fileMap);
                 
                 // Handle initial variant if provided in the same row
                 if (!empty($data['variant_sku']) || !empty($filterValues)) {
-                    $this->processVariantRow($product, $data);
+                    $this->processVariantRow($product, $data, $fileMap);
                 }
             }
 
@@ -1433,7 +1562,7 @@ class ProductController extends Controller
         return $filters;
     }
 
-    private function processVariantRow(Product $product, array $data)
+    private function processVariantRow(Product $product, array $data, array $fileMap = [])
     {
         $variantValues = [];
         foreach ($data as $key => $value) {
@@ -1446,12 +1575,39 @@ class ProductController extends Controller
 
         if (empty($variantValues) && empty($data['variant_sku'])) return;
 
+        $variantImages = [];
+        // 1. Variant image URLs
+        $vUrls = explode(',', $data['variant_image_urls'] ?? '');
+        foreach ($vUrls as $vUrl) {
+            $vUrl = trim($vUrl);
+            if (filter_var($vUrl, FILTER_VALIDATE_URL)) {
+                $variantImages[] = [
+                    'image_url' => $vUrl,
+                ];
+            }
+        }
+        
+        // 2. Variant image filenames
+        $vFilenames = explode(',', $data['variant_image_filenames'] ?? '');
+        foreach ($vFilenames as $vfName) {
+            $vfName = trim($vfName);
+            if (isset($fileMap[$vfName])) {
+                $uFile = $fileMap[$vfName];
+                $newFilename = time() . '_variant_' . Str::random(10) . '_' . $vfName;
+                $path = $uFile->storeAs('products/variants', $newFilename, 'public');
+                $variantImages[] = [
+                    'image_url' => asset('storage/' . $path),
+                ];
+            }
+        }
+
         $product->variants()->updateOrCreate(
             ['sku' => $data['variant_sku'] ?? ($product->sku . '-' . Str::random(5))],
             [
                 'variant_values' => $variantValues,
-                'price' => isset($data['variant_price']) ? (float)$data['variant_price'] : $product->price,
+                'price' => (isset($data['variant_price']) && trim($data['variant_price']) !== '') ? (float)$data['variant_price'] : $product->price,
                 'stock_quantity' => isset($data['variant_stock']) ? (int)$data['variant_stock'] : 0,
+                'images' => !empty($variantImages) ? $variantImages : null,
             ]
         );
     }
@@ -1498,6 +1654,43 @@ class ProductController extends Controller
             if (isset($allImages[0]['image_url'])) {
                 $product->cover_image = $allImages[0]['image_url'];
             }
+            $product->save();
+        }
+    }
+
+    private function handleBulkSizeGuideImages(Product $product, array $data, array $fileMap)
+    {
+        $allGuideImages = [];
+        
+        // 1. URLs
+        $urls = explode(',', $data['size_guide_image_urls'] ?? '');
+        foreach ($urls as $url) {
+            $url = trim($url);
+            if (filter_var($url, FILTER_VALIDATE_URL)) {
+                $allGuideImages[] = [
+                    'image_path' => $url,
+                    'image_url' => $url,
+                ];
+            }
+        }
+
+        // 2. Filenames
+        $filenames = explode(',', $data['size_guide_image_filenames'] ?? '');
+        foreach ($filenames as $fname) {
+            $fname = trim($fname);
+            if (isset($fileMap[$fname])) {
+                $uFile = $fileMap[$fname];
+                $newFilename = time() . '_bulk_sg_' . Str::random(10) . '_' . $fname;
+                $path = $uFile->storeAs('products/size-guides', $newFilename, 'public');
+                $allGuideImages[] = [
+                    'image_path' => $path,
+                    'image_url' => asset('storage/' . $path),
+                ];
+            }
+        }
+
+        if (!empty($allGuideImages)) {
+            $product->size_guide_images = $allGuideImages;
             $product->save();
         }
     }

@@ -60,6 +60,7 @@ interface ProductDetail {
   show_description?: boolean;
   show_specifications?: boolean;
   sizeGuideImages?: string[];
+  cover_image?: string | null;
 }
 
 interface BreadcrumbCategory {
@@ -337,14 +338,23 @@ const Product = () => {
 
         // Transform images
         const transformedImages: string[] = [];
+        const coverImageUrl = apiProduct.cover_image 
+          ? (apiProduct.cover_image.startsWith('http') ? apiProduct.cover_image : getStorageUrl(apiProduct.cover_image)) 
+          : null;
         if (apiProduct.images && Array.isArray(apiProduct.images)) {
           apiProduct.images.forEach((img: any) => {
             if (typeof img === 'string') {
-              transformedImages.push(getStorageUrl(img));
+              const fullUrl = getStorageUrl(img);
+              if (!(coverImageUrl && (fullUrl === coverImageUrl || img === apiProduct.cover_image))) {
+                transformedImages.push(fullUrl);
+              }
             } else if (img && typeof img === 'object') {
               const path = img.image_url || img.image_path;
               if (path) {
-                transformedImages.push(getStorageUrl(path));
+                const fullUrl = getStorageUrl(path);
+                if (!(coverImageUrl && (fullUrl === coverImageUrl || path === apiProduct.cover_image))) {
+                  transformedImages.push(fullUrl);
+                }
               }
             }
           });
@@ -412,6 +422,7 @@ const Product = () => {
           show_description: apiProduct.show_description !== undefined ? Boolean(apiProduct.show_description) : true,
           show_specifications: apiProduct.show_specifications !== undefined ? Boolean(apiProduct.show_specifications) : true,
           sizeGuideImages: transformedSizeGuideImages,
+          cover_image: coverImageUrl,
         };
 
         if (categoriesMap.size > 0) {
@@ -596,15 +607,47 @@ const Product = () => {
     }
   };
 
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    
+    // 1. If variant is selected and HAS images, show ONLY those variant images.
+    if (matchingVariant && matchingVariant.images && matchingVariant.images.length > 0) {
+      return matchingVariant.images.map((img: any) => {
+        const path = img.image_url || img.image_path;
+        return getStorageUrl(path);
+      });
+    }
+    
+    // 2. If no variant selected or selected variant HAS NO images, return cover image + base images
+    const baseImages = [...product.images];
+    if (product.cover_image) {
+      const fullCoverUrl = product.cover_image.startsWith('http') 
+        ? product.cover_image 
+        : getStorageUrl(product.cover_image);
+      
+      // Only add if not already in baseImages (sanity check)
+      if (!baseImages.includes(fullCoverUrl)) {
+        return [fullCoverUrl, ...baseImages];
+      }
+    }
+    
+    return baseImages;
+  }, [product, matchingVariant]);
+
+  // Reset selected image when variant changes
+  useEffect(() => {
+    setSelectedImage(0);
+  }, [matchingVariant?.id]);
+
   const nextImage = () => {
     if (product) {
-      setSelectedImage((prev) => (prev + 1) % product.images.length);
+      setSelectedImage((prev) => (prev + 1) % galleryImages.length);
     }
   };
 
   const prevImage = () => {
     if (product) {
-      setSelectedImage((prev) => (prev - 1 + product.images.length) % product.images.length);
+      setSelectedImage((prev) => (prev - 1 + galleryImages.length) % galleryImages.length);
     }
   };
 
@@ -816,7 +859,7 @@ const Product = () => {
             {/* Main Image */}
             <div className="relative bg-white rounded-2xl shadow-lg overflow-hidden">
               <img
-                src={product.images && product.images[selectedImage] ? product.images[selectedImage] : '/placeholder.svg'}
+                src={galleryImages[selectedImage] || '/placeholder.svg'}
                 alt={product.name}
                 width="600"
                 height="600"
@@ -834,7 +877,7 @@ const Product = () => {
               )}
 
               {/* Image Navigation */}
-              {product.images.length > 1 && (
+              {galleryImages.length > 1 && (
                 <>
                   <button
                     onClick={prevImage}
@@ -853,9 +896,9 @@ const Product = () => {
             </div>
 
             {/* Thumbnail Images */}
-            {product.images.length > 1 && (
+            {galleryImages.length > 1 && (
               <div className="flex gap-2 overflow-x-auto">
-                {product.images.map((image, index) => (
+                {galleryImages.map((image, index) => (
                   <button
                     key={index}
                     onClick={() => setSelectedImage(index)}
@@ -1394,7 +1437,7 @@ const Product = () => {
 
             {/* Main Image */}
             <img
-              src={product.images && product.images[selectedImage] ? product.images[selectedImage] : '/placeholder.svg'}
+              src={galleryImages[selectedImage] || '/placeholder.svg'}
               alt={product.name}
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
@@ -1404,7 +1447,7 @@ const Product = () => {
             />
 
             {/* Navigation Buttons */}
-            {product.images.length > 1 && (
+            {galleryImages.length > 1 && (
               <>
                 <button
                   onClick={(e) => {
@@ -1430,16 +1473,16 @@ const Product = () => {
             )}
 
             {/* Image Counter */}
-            {product.images.length > 1 && (
+            {galleryImages.length > 1 && (
               <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-50 text-white px-4 py-2 rounded-full text-sm">
-                {selectedImage + 1} / {product.images.length}
+                {selectedImage + 1} / {galleryImages.length}
               </div>
             )}
 
             {/* Thumbnail Strip (optional - at bottom) */}
-            {product.images.length > 1 && product.images.length <= 10 && (
+            {galleryImages.length > 1 && galleryImages.length <= 10 && (
               <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 flex gap-2 overflow-x-auto max-w-4xl px-4">
-                {product.images.map((image, index) => (
+                {galleryImages.map((image, index) => (
                   <button
                     key={index}
                     onClick={(e) => {
