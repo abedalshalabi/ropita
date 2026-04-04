@@ -19,6 +19,9 @@ class CartResource extends JsonResource
             'quantity' => $this->quantity,
             'price' => $this->price,
             'total' => $this->total,
+            'stock_status' => $this->product->stock_status ?? 'always_in_stock',
+            'stock_quantity' => $this->product_variant_id && $this->variant ? $this->variant->stock_quantity : $this->product->stock_quantity,
+            'manage_stock' => ($this->product->stock_status ?? '') === 'stock_based',
             'product' => [
                 'id' => $this->product->id,
                 'name' => $this->product->name,

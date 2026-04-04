@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Hash;
 
 class AdminCustomerController extends Controller
 {
@@ -14,7 +15,7 @@ class AdminCustomerController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = User::withCount(['orders', 'cartItems']);
+        $query = User::withCount(['orders', 'cartItems', 'wishlistItems']);
         
         // Search by name, email, or phone
         if ($request->has('search')) {
@@ -57,6 +58,8 @@ class AdminCustomerController extends Controller
             'orders.items.product',
             'cartItems.product',
             'cartItems.variant',
+            'wishlistItems.product.brand',
+            'wishlistItems.product.variants',
         ]);
 
         // Compute summary statistics
@@ -64,6 +67,7 @@ class AdminCustomerController extends Controller
             'total_orders'     => $user->orders->count(),
             'total_spent'      => (float) $user->orders->where('payment_status', 'paid')->sum('total'),
             'cart_items_count' => $user->cartItems->count(),
+            'wishlist_items_count' => $user->wishlistItems->count(),
             'cart_total'       => (float) $user->cartItems->sum(function ($item) {
                 $price = $item->variant
                     ? $item->variant->price
@@ -74,6 +78,24 @@ class AdminCustomerController extends Controller
 
         return response()->json([
             'data' => array_merge($user->toArray(), ['stats' => $stats]),
+        ]);
+    }
+
+    /**
+     * Reset a customer's password from the admin dashboard.
+     */
+    public function resetPassword(Request $request, User $user): JsonResponse
+    {
+        $validated = $request->validate([
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return response()->json([
+            'message' => 'Customer password reset successfully.',
         ]);
     }
 }

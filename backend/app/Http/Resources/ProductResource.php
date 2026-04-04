@@ -32,6 +32,7 @@ class ProductResource extends JsonResource
             'in_stock' => $this->in_stock,
             'is_active' => $this->is_active,
             'is_featured' => $this->is_featured,
+            'show_in_offers' => (bool)$this->show_in_offers,
             'sort_order' => $this->sort_order,
             'weight' => $this->weight,
             'dimensions' => $this->dimensions,
@@ -159,6 +160,51 @@ class ProductResource extends JsonResource
                 
                 return [];
             }, []),
+            'size_guide_images' => $this->when($this->size_guide_images, function () {
+                $images = $this->size_guide_images;
+
+                if (!is_array($images)) {
+                    return [];
+                }
+
+                $result = [];
+                foreach ($images as $image) {
+                    if (empty($image)) {
+                        continue;
+                    }
+
+                    if (is_string($image)) {
+                        $result[] = [
+                            'image_path' => $image,
+                            'image_url' => str_starts_with($image, 'http') ? $image : asset('storage/' . ltrim($image, '/')),
+                        ];
+                        continue;
+                    }
+
+                    if (is_object($image)) {
+                        $image = (array) $image;
+                    }
+
+                    if (!is_array($image)) {
+                        continue;
+                    }
+
+                    $imagePath = $image['image_path'] ?? $image['path'] ?? '';
+                    $imageUrl = $image['image_url'] ?? '';
+                    if (empty($imageUrl) && !empty($imagePath)) {
+                        $imageUrl = str_starts_with($imagePath, 'http') ? $imagePath : asset('storage/' . ltrim($imagePath, '/'));
+                    }
+
+                    if (!empty($imageUrl)) {
+                        $result[] = [
+                            'image_path' => $imagePath,
+                            'image_url' => $imageUrl,
+                        ];
+                    }
+                }
+
+                return $result;
+            }, []),
             'reviews' => $this->whenLoaded('reviews', function () {
                 return $this->reviews->map(function ($review) {
                     return [
@@ -180,6 +226,8 @@ class ProductResource extends JsonResource
             'has_variants' => (bool)$this->has_variants,
             'has_price_range' => (bool)$this->has_price_range,
             'max_price' => (float)$this->max_price,
+            'show_description' => (bool)$this->show_description,
+            'show_specifications' => (bool)$this->show_specifications,
         ];
     }
 }

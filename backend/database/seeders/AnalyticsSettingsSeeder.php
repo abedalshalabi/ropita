@@ -29,6 +29,13 @@ class AnalyticsSettingsSeeder extends Seeder
                 'description' => 'إظهار عدد مشاهدات المنتج في صفحة المنتج'
             ],
             [
+                'key' => 'show_whatsapp_float',
+                'value' => '1',
+                'type' => 'toggle',
+                'group' => 'analytics',
+                'description' => 'إظهار أيقونة واتساب العائمة في الموقع'
+            ],
+            [
                 'key' => 'total_visits',
                 'value' => '0',
                 'type' => 'number',

@@ -31,7 +31,7 @@ class ProductController extends Controller
     private function transformFormData(array $data): array
     {
         // Convert boolean strings to actual booleans
-        $booleanFields = ['manage_stock', 'in_stock', 'is_active', 'is_featured'];
+        $booleanFields = ['manage_stock', 'in_stock', 'is_active', 'is_featured', 'show_in_offers', 'show_description', 'show_specifications'];
         foreach ($booleanFields as $field) {
             if (isset($data[$field])) {
                 // Convert string 'true'/'false' to boolean
@@ -43,7 +43,7 @@ class ProductController extends Controller
             }
         }
 
-        $arrayFields = ['features', 'specifications', 'filter_values', 'variants'];
+        $arrayFields = ['features', 'specifications', 'filter_values', 'variants', 'size_guide_images'];
         foreach ($arrayFields as $field) {
             if (isset($data[$field]) && is_string($data[$field])) {
                 $decoded = json_decode($data[$field], true);
@@ -200,9 +200,30 @@ class ProductController extends Controller
         // Apply sorting
         $sortBy = $request->get('sort', 'created_at');
         $sortOrder = $request->get('order', 'desc');
-        $sortMap = ['name' => 'name', 'price' => 'price', 'created_at' => 'created_at', 'rating' => 'rating', 'sales_count' => 'sales_count'];
-        $sortField = $sortMap[$sortBy] ?? 'created_at';
-        $query->orderBy($sortField, $sortOrder);
+        
+        // Ensure sortOrder is valid
+        $sortOrder = strtolower($sortOrder) === 'asc' ? 'asc' : 'desc';
+
+        if ($sortBy === 'price') {
+            // Calculate effective price: (MIN(variant_price) or products.price) * (1 - discount/100)
+            $effectivePriceSql = "COALESCE(
+                (SELECT MIN(pv.price) FROM product_variants pv WHERE pv.product_id = products.id),
+                products.price
+            ) * (1 - COALESCE(products.discount_percentage, 0) / 100)";
+            
+            $query->orderByRaw($effectivePriceSql . ' ' . $sortOrder);
+        } else {
+            $sortMap = [
+                'name' => 'name', 
+                'price' => 'price', // Base column for direct sort if subquery fails
+                'created_at' => 'created_at', 
+                'rating' => 'rating', 
+                'sales_count' => 'sales_count',
+                'views_count' => 'views_count'
+            ];
+            $sortField = $sortMap[$sortBy] ?? 'created_at';
+            $query->orderBy($sortField, $sortOrder);
+        }
 
         // Eager load everything needed to avoid N+1 queries
         $query->with(['variants', 'categories', 'category', 'brand', 'images']);
@@ -269,6 +290,7 @@ class ProductController extends Controller
             'specifications' => 'nullable|string',
             'filter_values' => 'nullable|string',
             'variants' => 'nullable|string',
+            'size_guide_images' => 'nullable',
             // Note: images validation is handled separately after main validation
             'rating' => 'nullable|numeric|min:0|max:5',
             'reviews_count' => 'nullable|integer|min:0',
@@ -276,11 +298,14 @@ class ProductController extends Controller
             'sales_count' => 'nullable|integer|min:0',
             'is_active' => 'nullable|string|in:true,false,1,0',
             'is_featured' => 'nullable|string|in:true,false,1,0',
+            'show_in_offers' => 'nullable|string|in:true,false,1,0',
             'sort_order' => 'nullable|integer',
             'meta_title' => 'nullable|string',
             'meta_description' => 'nullable|string',
             'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
             'cover_image_url' => 'nullable|string|url',
+            'show_description' => 'nullable|string|in:true,false,1,0',
+            'show_specifications' => 'nullable|string|in:true,false,1,0',
         ]);
 
         // Transform string values to appropriate types
@@ -465,6 +490,9 @@ class ProductController extends Controller
             Log::info('No images to save for product ' . $product->id);
         }
 
+        // Handle size guide images (urls/files)
+        $this->syncSizeGuideImages($request, $product);
+
         // Save variants if provided
         if (isset($validated['variants']) && is_array($validated['variants'])) {
             foreach ($validated['variants'] as $variantData) {
@@ -551,6 +579,7 @@ class ProductController extends Controller
             // Note: images validation is handled separately after main validation
             'is_active' => 'sometimes|string|in:true,false,1,0',
             'is_featured' => 'sometimes|string|in:true,false,1,0',
+            'show_in_offers' => 'sometimes|string|in:true,false,1,0',
             'sort_order' => 'nullable|integer',
             'rating' => 'nullable|numeric|min:0|max:5',
             'reviews_count' => 'nullable|integer|min:0',
@@ -562,6 +591,9 @@ class ProductController extends Controller
             'specifications' => 'nullable|string',
             'filter_values' => 'nullable|string',
             'variants' => 'nullable|string',
+            'size_guide_images' => 'nullable',
+            'show_description' => 'sometimes|string|in:true,false,1,0',
+            'show_specifications' => 'sometimes|string|in:true,false,1,0',
         ]);
 
         // Transform string values to appropriate types
@@ -798,6 +830,9 @@ class ProductController extends Controller
         
         $finalImagesCount = count($allImages);
         Log::info('Total images for product ' . $product->id . ' after update: ' . $finalImagesCount . ' (kept: ' . count($imagesToKeep) . ', URLs: ' . count($urlImages) . ', uploaded: ' . count($uploadedImages) . ')');
+
+        // Handle size guide images (existing/urls/files)
+        $this->syncSizeGuideImages($request, $product);
 
         // Update variants if provided
         if (isset($validated['variants']) && is_array($validated['variants'])) {
@@ -1122,6 +1157,31 @@ class ProductController extends Controller
             'count' => count($productIds)
         ]);
     }
+
+    /**
+     * Bulk update active status for selected products
+     */
+    public function bulkUpdateStatus(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'exists:products,id',
+            'is_active' => 'required|boolean',
+        ]);
+
+        $productIds = $validated['product_ids'];
+        $isActive = $validated['is_active'];
+
+        Product::whereIn('id', $productIds)->update([
+            'is_active' => $isActive,
+        ]);
+
+        return response()->json([
+            'message' => 'Bulk status updated successfully',
+            'count' => count($productIds),
+            'is_active' => $isActive,
+        ]);
+    }
     /**
      * Export an Excel template for product import with dynamic filter columns and dropdowns.
      */
@@ -1440,6 +1500,103 @@ class ProductController extends Controller
             }
             $product->save();
         }
+    }
+
+    private function syncSizeGuideImages(Request $request, Product $product): void
+    {
+        $hasExisting = $request->has('size_guide_existing_images');
+        $hasUrls = $request->has('size_guide_image_urls');
+        $files = $this->extractUploadedFiles($request, 'size_guide_images');
+        $hasFiles = count($files) > 0;
+
+        // Do not modify if request doesn't include any size guide payload.
+        if (!$hasExisting && !$hasUrls && !$hasFiles) {
+            return;
+        }
+
+        $imagesToKeep = [];
+        if ($hasExisting) {
+            $existing = $request->input('size_guide_existing_images');
+            if (is_string($existing)) {
+                $existing = json_decode($existing, true);
+            }
+            if (is_array($existing)) {
+                $imagesToKeep = $existing;
+            }
+        }
+
+        $newUrlImages = [];
+        if ($hasUrls) {
+            $urls = $request->input('size_guide_image_urls');
+            if (is_string($urls)) {
+                $urls = json_decode($urls, true);
+            }
+            if (is_array($urls)) {
+                foreach ($urls as $url) {
+                    if (is_string($url) && filter_var($url, FILTER_VALIDATE_URL)) {
+                        $newUrlImages[] = [
+                            'image_path' => $url,
+                            'image_url' => $url,
+                        ];
+                    }
+                }
+            }
+        }
+
+        $uploadedImages = [];
+        foreach ($files as $index => $file) {
+            if (!$file || !$file->isValid()) {
+                continue;
+            }
+
+            $validator = Validator::make(
+                ['image' => $file],
+                ['image' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240']
+            );
+
+            if ($validator->fails()) {
+                continue;
+            }
+
+            $filename = time() . '_size_guide_' . $index . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('products/size-guides', $filename, 'public');
+
+            $uploadedImages[] = [
+                'image_path' => $path,
+                'image_url' => asset('storage/' . $path),
+            ];
+        }
+
+        $product->size_guide_images = array_values(array_merge($imagesToKeep, $newUrlImages, $uploadedImages));
+        $product->save();
+    }
+
+    private function extractUploadedFiles(Request $request, string $field): array
+    {
+        $files = [];
+        if ($request->hasFile($field)) {
+            $files = $request->file($field);
+            if (!is_array($files)) {
+                $files = [$files];
+            }
+            return $files;
+        }
+
+        $index = 0;
+        while ($request->hasFile("{$field}[{$index}]")) {
+            $files[] = $request->file("{$field}[{$index}]");
+            $index++;
+        }
+
+        if (count($files) === 0) {
+            $index = 0;
+            while ($request->hasFile("{$field}.{$index}")) {
+                $files[] = $request->file("{$field}.{$index}");
+                $index++;
+            }
+        }
+
+        return $files;
     }
 
     /**

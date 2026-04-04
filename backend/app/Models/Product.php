@@ -30,10 +30,12 @@ class Product extends Model
         'in_stock',
         'is_active',
         'is_featured',
+        'show_in_offers',
         'sort_order',
         'weight',
         'dimensions',
         'images',
+        'size_guide_images',
         'warranty',
         'delivery_time',
         'features',
@@ -48,6 +50,8 @@ class Product extends Model
         'meta_title',
         'meta_description',
         'cover_image',
+        'show_description',
+        'show_specifications',
     ];
 
     protected $casts = [
@@ -62,11 +66,15 @@ class Product extends Model
         'in_stock' => 'boolean',
         'is_active' => 'boolean',
         'is_featured' => 'boolean',
+        'show_in_offers' => 'boolean',
         'features' => 'array',
         'specifications' => 'array',
         'filter_values' => 'array',
         'images' => 'array',
+        'size_guide_images' => 'array',
         'cover_image' => 'string',
+        'show_description' => 'boolean',
+        'show_specifications' => 'boolean',
     ];
 
     // Keep for backward compatibility (single category)

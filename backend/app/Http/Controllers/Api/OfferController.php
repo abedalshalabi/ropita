@@ -39,10 +39,97 @@ class OfferController extends Controller
                   ->orderBy('created_at', 'desc');
 
             $offers = $query->get();
+            $offerData = OfferResource::collection($offers)->toArray($request);
+
+            $specialProducts = Product::where('show_in_offers', true)
+                ->where('is_active', true)
+                ->with(['brand', 'categories', 'variants' => function($q) {
+                    $q->where(function($sq) {
+                        $sq->whereNotNull('price')->orWhere('price', '>', 0);
+                    });
+                }])
+                ->get();
+
+            foreach ($specialProducts as $product) {
+                // Determine starting price and stock from variants if available
+                $displayPrice = (float) $product->price;
+                $displayOriginalPrice = $product->original_price ? (float) $product->original_price : null;
+                $displayStock = $product->manage_stock ? $product->stock_quantity : null;
+
+                $hasDifferentPrices = false;
+                if ($product->variants && $product->variants->isNotEmpty()) {
+                    $bestVariant = $product->variants->sortBy('price')->first();
+                    if ($bestVariant) {
+                        $displayPrice = (float) $bestVariant->price;
+                        // For variants, we usually compare against base original_price if variant doesn't have its own
+                        $displayStock = (int) $bestVariant->stock_quantity;
+
+                        // Check for price variation
+                        $uniquePricesCount = $product->variants->where('price', '>', 0)->pluck('price')->unique()->count();
+                        if ($uniquePricesCount > 1) {
+                            $hasDifferentPrices = true;
+                        }
+                    }
+                }
+
+                // Determine image
+                $firstImage = null;
+                if ($product->cover_image) {
+                    $firstImage = $product->cover_image;
+                } elseif ($product->images && is_array($product->images) && count($product->images) > 0) {
+                    $firstImageObj = $product->images[0];
+                    if (is_string($firstImageObj)) {
+                        $firstImage = $firstImageObj;
+                    } elseif (is_array($firstImageObj) && isset($firstImageObj['image_url'])) {
+                        $firstImage = $firstImageObj['image_url'];
+                    }
+                }
+
+                // Append virtual offer
+                $offerData[] = [
+                    'id' => 1000000 + $product->id, // Offset ID to avoid conflicts
+                    'title' => $product->name,
+                    'description' => $product->short_description ?: $product->name,
+                    'type' => 'weekly_deal',
+                    'image' => $firstImage,
+                    'discount_percentage' => $product->discount_percentage ? (float) $product->discount_percentage : null,
+                    'fixed_discount' => null,
+                    'starts_at' => now()->toIso8601String(),
+                    'ends_at' => now()->addYears(1)->toIso8601String(),
+                    'is_active' => true,
+                    'sort_order' => 100,
+                    'products' => [
+                        [
+                            'id' => $product->id,
+                            'name' => $product->name,
+                            'slug' => $product->slug,
+                            'price' => $displayPrice,
+                            'original_price' => $displayOriginalPrice,
+                            'image' => $firstImage,
+                            'brand' => $product->brand ? $product->brand->name : null,
+                            'rating' => (float) $product->rating,
+                            'reviews_count' => $product->reviews_count,
+                            'has_different_prices' => $hasDifferentPrices,
+                            'has_variants' => $product->variants && $product->variants->isNotEmpty(),
+                            'filter_values' => $product->filter_values ?: [],
+                        ]
+                    ],
+                    'bundle_items' => [],
+                    'bundle_price' => null,
+                    'original_bundle_price' => null,
+                    'stock_limit' => $displayStock,
+                    'sold_count' => $product->sales_count ?? 0,
+                    'is_currently_active' => true,
+                    'remaining_time' => 3600 * 24 * 365, // 1 year
+                    'progress_percentage' => 0,
+                    'created_at' => $product->created_at,
+                    'updated_at' => $product->updated_at,
+                ];
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => OfferResource::collection($offers),
+                'data' => $offerData,
             ]);
         } catch (\Exception $e) {
             Log::error('Error fetching offers: ' . $e->getMessage());

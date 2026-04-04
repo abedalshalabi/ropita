@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\AdminCityController;
 use App\Http\Controllers\Api\AdminSliderController;
 use App\Http\Controllers\Api\FilterController;
 use App\Http\Controllers\Api\AdminCustomerController;
+use App\Http\Controllers\Api\NewsletterSubscriberController;
 
 /*
 |--------------------------------------------------------------------------
@@ -46,6 +47,8 @@ Route::prefix('v1')->group(function () {
     // Authentication routes
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
     // Admin Authentication routes
@@ -95,6 +98,7 @@ Route::prefix('v1')->group(function () {
     
     // Contact form route
     Route::post('/contact', [ContactController::class, 'store']);
+    Route::post('/newsletter/subscribe', [NewsletterSubscriberController::class, 'store']);
     
     // Cart routes (session-based for guests)
     Route::get('/cart', [CartController::class, 'index']);
@@ -165,11 +169,13 @@ Route::prefix('v1')->group(function () {
               // Customer Management (Users)
               Route::get('/admin/customers', [AdminCustomerController::class, 'index']);
               Route::get('/admin/customers/{user}', [AdminCustomerController::class, 'show']);
+              Route::post('/admin/customers/{user}/reset-password', [AdminCustomerController::class, 'resetPassword']);
 
               // Product management
               Route::get('/admin/products/import-template', [ProductController::class, 'exportImportTemplate']);
               Route::post('/admin/products/import', [ProductController::class, 'importProducts']);
               Route::post('/admin/products/bulk-discount', [ProductController::class, 'bulkApplyDiscount']);
+              Route::post('/admin/products/bulk-status', [ProductController::class, 'bulkUpdateStatus']);
               Route::post('/admin/products/bulk-delete', [ProductController::class, 'bulkDestroy']);
               Route::get('/admin/products', [ProductController::class, 'adminIndex']);
               Route::get('/admin/products/{product}', [ProductController::class, 'adminShow']);
@@ -247,6 +253,13 @@ Route::prefix('v1')->group(function () {
               Route::get('/admin/contact-messages/{id}', [ContactController::class, 'show']);
               Route::put('/admin/contact-messages/{id}/status', [ContactController::class, 'updateStatus']);
               Route::delete('/admin/contact-messages/{id}', [ContactController::class, 'destroy']);
+
+              // Newsletter subscribers management
+              Route::get('/admin/newsletter-subscribers', [NewsletterSubscriberController::class, 'index']);
+              Route::get('/admin/newsletter-subscribers-export', [NewsletterSubscriberController::class, 'export']);
+              Route::get('/admin/newsletter-subscribers/{id}', [NewsletterSubscriberController::class, 'show']);
+              Route::put('/admin/newsletter-subscribers/{id}/status', [NewsletterSubscriberController::class, 'updateStatus']);
+              Route::delete('/admin/newsletter-subscribers/{id}', [NewsletterSubscriberController::class, 'destroy']);
           });
     });
 

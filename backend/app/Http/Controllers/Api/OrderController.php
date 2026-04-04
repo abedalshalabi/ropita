@@ -38,6 +38,20 @@ class OrderController extends Controller
             'payment_method' => 'required|in:cod,credit_card,paypal',
             'notes' => 'nullable|string',
         ]);
+
+        // Shipping must always be based on an active city selected at checkout.
+        $selectedCity = City::where('name', $validated['customer_city'])
+            ->where('is_active', true)
+            ->first();
+
+        if (!$selectedCity) {
+            return response()->json([
+                'message' => 'المدينة المختارة غير صالحة أو غير متاحة حالياً',
+                'errors' => [
+                    'customer_city' => ['يرجى اختيار مدينة صحيحة لحساب الشحن'],
+                ],
+            ], 422);
+        }
         
         // Validate items separately if provided
         if ($request->has('items') && is_array($request->input('items'))) {
@@ -167,7 +181,7 @@ class OrderController extends Controller
 
                 if (!$isAvailable) {
                     return response()->json([
-                        'message' => "Product {$product->name} is out of stock or insufficient quantity"
+                        'message' => "عذراً، المنتج «{$product->name}» غير متوفر بالكمية المطلوبة"
                     ], 400);
                 }
             }
@@ -181,23 +195,8 @@ class OrderController extends Controller
                 return $item['price'] * $item['quantity'];
             }, $items));
             
-            // Calculate shipping cost based on city
-            $shippingCost = 0;
-            if (isset($validated['customer_city'])) {
-                $city = City::where('name', $validated['customer_city'])
-                    ->where('is_active', true)
-                    ->first();
-                
-                if ($city) {
-                    $shippingCost = $city->shipping_cost;
-                } else {
-                    // Fallback: use old logic if city not found
-                    $shippingCost = $subtotal > 500 ? 0 : 25;
-                }
-            } else {
-                // Fallback: use old logic if city not provided
-                $shippingCost = $subtotal > 500 ? 0 : 25;
-            }
+            // Calculate shipping cost based only on the selected active city
+            $shippingCost = (float) $selectedCity->shipping_cost;
             
             $total = $subtotal + $shippingCost;
 
@@ -319,14 +318,8 @@ class OrderController extends Controller
                 }
             }
 
-            // Recalculate shipping and total
-            $shippingCost = 0;
-            if (isset($validated['customer_city'])) {
-                $city = City::where('name', $validated['customer_city'])->where('is_active', true)->first();
-                $shippingCost = $city ? $city->shipping_cost : ($subtotal > 500 ? 0 : 25);
-            } else {
-                $shippingCost = $subtotal > 500 ? 0 : 25;
-            }
+            // Recalculate shipping and total (city-based only)
+            $shippingCost = (float) $selectedCity->shipping_cost;
             
             $total = $subtotal + $shippingCost;
 

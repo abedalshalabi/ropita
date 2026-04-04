@@ -297,7 +297,7 @@ class AdminController extends Controller
                 if (!$isAvailable) {
                     return [
                         'available' => false,
-                        'message' => "Product {$product->name} is out of stock or insufficient quantity"
+                        'message' => "عذراً، المنتج «{$product->name}» غير متوفر بالكمية المطلوبة"
                     ];
                 }
             } 

@@ -17,11 +17,31 @@ class OfferResource extends JsonResource
         // Load products if products array exists
         $productsData = [];
         if ($this->products && is_array($this->products)) {
+            /** @var \Illuminate\Database\Eloquent\Collection<\App\Models\Product> $products */
             $products = \App\Models\Product::whereIn('id', $this->products)
                 ->where('is_active', true)
                 ->get();
             
             foreach ($products as $product) {
+                // Determine starting price from variants if available
+                $displayPrice = (float) $product->price;
+                $displayOriginalPrice = $product->original_price ? (float) $product->original_price : null;
+
+                $hasDifferentPrices = false;
+                if ($product->variants()->exists()) {
+                    $variants = $product->variants()->where('price', '>', 0)->get();
+                    if ($variants->isNotEmpty()) {
+                        $bestVariant = $variants->sortBy('price')->first();
+                        $displayPrice = (float) $bestVariant->price;
+                        
+                        // Check if there's any price variation
+                        $uniquePricesCount = $variants->pluck('price')->unique()->count();
+                        if ($uniquePricesCount > 1) {
+                            $hasDifferentPrices = true;
+                        }
+                    }
+                }
+
                 $firstImage = null;
                 if ($product->images && is_array($product->images) && count($product->images) > 0) {
                     $firstImageObj = $product->images[0];
@@ -38,12 +58,15 @@ class OfferResource extends JsonResource
                     'id' => $product->id,
                     'name' => $product->name,
                     'slug' => $product->slug,
-                    'price' => (float) $product->price,
-                    'original_price' => $product->original_price ? (float) $product->original_price : null,
+                    'price' => $displayPrice,
+                    'original_price' => $displayOriginalPrice,
                     'image' => $firstImage,
                     'brand' => $product->brand ? $product->brand->name : null,
                     'rating' => (float) $product->rating,
                     'reviews_count' => $product->reviews_count,
+                    'has_different_prices' => $hasDifferentPrices,
+                    'has_variants' => $product->variants()->exists(),
+                    'filter_values' => $product->filter_values ?: [],
                 ];
             }
         }

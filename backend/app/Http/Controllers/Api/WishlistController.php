@@ -117,9 +117,11 @@ class WishlistController extends Controller
 
     protected function resolveVisitor(Request $request): array
     {
-        if (Auth::check()) {
+        $user = Auth::guard('sanctum')->user();
+
+        if ($user) {
             return [
-                'user_id' => Auth::id(),
+                'user_id' => $user->id,
                 'session_id' => null,
             ];
         }
