@@ -9,11 +9,12 @@ import { useSiteSettings } from "../context/SiteSettingsContext";
 interface AboutSettings {
   about_hero_title?: string;
   about_hero_description?: string;
-  about_story_content?: {
-    title: string;
-    description: string;
-    image: string;
+  about_story_content?: string | {
+    title?: string;
+    description?: string;
+    image?: string;
   };
+  about_story_image?: string;
   about_values?: Array<{
     title: string;
     description: string;
@@ -32,7 +33,10 @@ const getStorageUrl = (path?: string | null) => {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   const storageUrl = import.meta.env.VITE_STORAGE_URL || "http://localhost:8000/storage";
-  return `${storageUrl}/${path}`;
+  // Normalize to avoid duplicated "storage/storage"
+  const cleanPath = path.replace(/^\/+/, ""); // remove leading slashes
+  const withoutStorage = cleanPath.replace(/^storage\//i, ""); // drop leading "storage/"
+  return `${storageUrl}/${withoutStorage}`;
 };
 
 const About = () => {
@@ -97,10 +101,29 @@ const About = () => {
   }
 
   const values = settings.about_values || [];
-  const story = settings.about_story_content || {
+
+  const defaultStory = {
     title: "قصتنا",
     description: "نقدم ملابس أطفال مختارة بعناية مع اهتمام حقيقي بالجودة والراحة والتفاصيل.",
     image: "https://images.unsplash.com/photo-1519238263530-99bdd11df2ea?w=800&h=600&fit=crop",
+  };
+
+  let storyTitle = defaultStory.title;
+  let storyDescription = defaultStory.description;
+  let storyImage = settings.about_story_image || defaultStory.image;
+
+  if (typeof settings.about_story_content === "string") {
+    storyDescription = settings.about_story_content || defaultStory.description;
+  } else if (typeof settings.about_story_content === "object" && settings.about_story_content) {
+    storyTitle = settings.about_story_content.title || defaultStory.title;
+    storyDescription = settings.about_story_content.description || defaultStory.description;
+    storyImage = settings.about_story_content.image || storyImage;
+  }
+
+  const story = {
+    title: storyTitle,
+    description: storyDescription || "",
+    image: storyImage || defaultStory.image,
   };
   const siteUrl = typeof window !== "undefined" ? window.location.origin : "";
   const generalSettings = siteSettings || {};
@@ -139,13 +162,18 @@ const About = () => {
           <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
             <div>
               <h2 className="mb-6 text-4xl font-bold text-gray-800">{story.title || "قصتنا"}</h2>
-              <p className="mb-6 text-lg leading-relaxed text-gray-600">{story.description}</p>
-              <p className="text-lg leading-relaxed text-gray-600">
-                نؤمن أن اختيار ملابس الأطفال لا يتعلق بالشكل فقط، بل بالراحة، الجودة، وسهولة الحركة. لذلك نعمل على تقديم خيارات مناسبة لكل يوم ولكل مناسبة.
-              </p>
+              <div
+                className="mb-6 text-lg leading-relaxed text-gray-600 space-y-4"
+                dangerouslySetInnerHTML={{ __html: story.description }}
+              />
+              {!settings.about_story_content && (
+                <p className="text-lg leading-relaxed text-gray-600">
+                  نؤمن أن اختيار ملابس الأطفال لا يتعلق بالشكل فقط، بل بالراحة، الجودة، وسهولة الحركة. لذلك نعمل على تقديم خيارات مناسبة لكل يوم ولكل مناسبة.
+                </p>
+              )}
             </div>
             <div>
-              <img src={story.image} alt="قصتنا" className="w-full rounded-lg shadow-lg" />
+              <img src={getStorageUrl(story.image)} alt="قصتنا" className="w-full rounded-lg shadow-lg" />
             </div>
           </div>
         </div>

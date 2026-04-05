@@ -339,6 +339,54 @@ const ImageUploadInput = ({ setting, value, onChange, onFileUpload }: ImageUploa
   );
 };
 
+// Simple WYSIWYG editor for rich text settings
+interface RichTextEditorProps {
+  value: string;
+  onChange: (html: string) => void;
+}
+
+const RichTextEditor = ({ value, onChange }: RichTextEditorProps) => {
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || "";
+    }
+  }, [value]);
+
+  const exec = (cmd: string) => {
+    document.execCommand(cmd, false);
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2 rounded-md border border-gray-200 bg-gray-50 p-2">
+        <button type="button" className="px-2 py-1 text-sm font-semibold rounded hover:bg-white" onClick={() => exec("bold")}>B</button>
+        <button type="button" className="px-2 py-1 text-sm font-semibold italic rounded hover:bg-white" onClick={() => exec("italic")}>I</button>
+        <button type="button" className="px-2 py-1 text-sm font-semibold underline rounded hover:bg-white" onClick={() => exec("underline")}>U</button>
+        <button type="button" className="px-2 py-1 text-sm font-semibold rounded hover:bg-white" onClick={() => exec("insertUnorderedList")}>• قائمة</button>
+      </div>
+      <div
+        ref={editorRef}
+        className="min-h-[160px] w-full rounded-md border border-gray-200 bg-white p-3 text-sm leading-relaxed"
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onBlur={handleInput}
+      />
+    </div>
+  );
+};
+
 interface SiteSetting {
   id: number;
   key: string;
@@ -500,6 +548,16 @@ const AdminSiteSettings = () => {
   };
 
   const renderSettingInput = (setting: SiteSetting) => {
+    // Allow rich/long text editing for the story content
+    if (setting.key === 'about_story_content') {
+      return (
+        <RichTextEditor
+          value={setting.value || ''}
+          onChange={(html) => handleSettingChange(setting.key, html)}
+        />
+      );
+    }
+
     switch (setting.type) {
       case 'json':
         if (
