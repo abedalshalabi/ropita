@@ -29,7 +29,7 @@ class OrderController extends Controller
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
             'customer_email' => 'required|email|max:255',
-            'customer_phone' => 'required|string|max:20',
+            'customer_phone' => ['required', 'string', 'regex:/^05\d{8}$/'],
             'customer_city' => 'required|string|max:100',
             'customer_district' => 'required|string|max:100',
             'customer_street' => 'nullable|string|max:255',
@@ -195,8 +195,11 @@ class OrderController extends Controller
                 return $item['price'] * $item['quantity'];
             }, $items));
             
-            // Calculate shipping cost based only on the selected active city
+            // Calculate shipping cost based on city and potential free shipping threshold
             $shippingCost = (float) $selectedCity->shipping_cost;
+            if ($selectedCity->free_shipping_threshold > 0 && $subtotal >= (float) $selectedCity->free_shipping_threshold) {
+                $shippingCost = 0;
+            }
             
             $total = $subtotal + $shippingCost;
 
@@ -318,8 +321,11 @@ class OrderController extends Controller
                 }
             }
 
-            // Recalculate shipping and total (city-based only)
+            // Recalculate shipping following item collection (honoring thresholds)
             $shippingCost = (float) $selectedCity->shipping_cost;
+            if ($selectedCity->free_shipping_threshold > 0 && $subtotal >= (float) $selectedCity->free_shipping_threshold) {
+                $shippingCost = 0;
+            }
             
             $total = $subtotal + $shippingCost;
 

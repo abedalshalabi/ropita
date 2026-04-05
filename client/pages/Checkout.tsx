@@ -13,6 +13,7 @@ interface City {
   shipping_cost: number;
   delivery_time_days: number;
   is_active: boolean;
+  free_shipping_threshold?: number | string | null;
 }
 
 const Checkout = () => {
@@ -85,9 +86,10 @@ const Checkout = () => {
 
   // Calculate subtotal from items to ensure accuracy
   const subtotal = state.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const shippingCost = selectedCity ? Number(selectedCity.shipping_cost) : null;
+  const shippingCost = (selectedCity && selectedCity.free_shipping_threshold && subtotal >= Number(selectedCity.free_shipping_threshold)) ? 0 : (selectedCity ? Number(selectedCity.shipping_cost) : null);
   const finalTotal = Number(subtotal) + Number(shippingCost ?? 0);
   const canSubmitOrder = !isSubmitting && !!selectedCity;
+  const isFreeShippingAchieved = !!(selectedCity && selectedCity.free_shipping_threshold && subtotal >= Number(selectedCity.free_shipping_threshold));
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -102,6 +104,14 @@ const Checkout = () => {
       alert("يرجى اختيار المدينة لحساب تكلفة الشحن قبل تأكيد الطلب.");
       return;
     }
+
+    // Phone validation: 10 digits, starts with 05
+    const phoneRegex = /^05\d{8}$/;
+    if (!phoneRegex.test(formData.phone)) {
+      alert("رقم الجوال غير صحيح. يجب أن يتكون من 10 أرقام ويبدأ بـ 05.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -255,9 +265,18 @@ const Checkout = () => {
                       ))}
                     </select>
                     {selectedCity && (
-                      <p className="text-sm text-gray-600 mt-1">
-                        تكلفة الشحن: {selectedCity.shipping_cost} شيكل | وقت التوصيل: {selectedCity.delivery_time_days} {selectedCity.delivery_time_days === 1 ? 'يوم' : 'أيام'}
-                      </p>
+                      <div className="mt-1 space-y-1">
+                        <p className="text-sm text-gray-600">
+                          تكلفة الشحن: {selectedCity.shipping_cost} شيكل | وقت التوصيل: {selectedCity.delivery_time_days} {selectedCity.delivery_time_days === 1 ? 'يوم' : 'أيام'}
+                        </p>
+                        {selectedCity.free_shipping_threshold && Number(selectedCity.free_shipping_threshold) > 0 && (
+                          <p className={`text-xs font-bold ${isFreeShippingAchieved ? "text-green-600" : "text-emerald-600"}`}>
+                            {isFreeShippingAchieved 
+                              ? "🎉 مبروك! لقد حصلت على توصيل مجاني" 
+                              : `توصيل مجاني للطلبات بقيمة ${selectedCity.free_shipping_threshold} شيكل أو أكثر (تحتاج ${Number(selectedCity.free_shipping_threshold) - subtotal} شيكل إضافية)`}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div>

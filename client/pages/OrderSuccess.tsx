@@ -133,9 +133,16 @@ const OrderSuccess = () => {
               
               <div className="flex justify-between py-3 border-b">
                 <span className="font-semibold text-gray-700">تكلفة الشحن:</span>
-                <span className={shippingCost === 0 ? "text-green-600" : "text-gray-900"}>
-                  {shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`}
-                </span>
+                <div className="text-left flex flex-col items-end">
+                  <span className={shippingCost === 0 ? "text-green-600 font-bold" : "text-gray-900"}>
+                    {shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`}
+                  </span>
+                  {shippingCost === 0 && (
+                    <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-bold mt-1">
+                      (هدية من المتجر)
+                    </span>
+                  )}
+                </div>
               </div>
               
               <div className="flex justify-between py-3 border-b">

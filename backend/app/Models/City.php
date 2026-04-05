@@ -16,10 +16,12 @@ class City extends Model
         'delivery_time_days',
         'is_active',
         'sort_order',
+        'free_shipping_threshold',
     ];
 
     protected $casts = [
         'shipping_cost' => 'decimal:2',
+        'free_shipping_threshold' => 'decimal:2',
         'delivery_time_days' => 'integer',
         'is_active' => 'boolean',
         'sort_order' => 'integer',

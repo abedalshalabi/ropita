@@ -25,6 +25,7 @@ interface City {
   delivery_time_days: number;
   is_active: boolean;
   sort_order: number;
+  free_shipping_threshold?: number;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +46,7 @@ const AdminCities = () => {
     delivery_time_days: 1,
     is_active: true,
     sort_order: 0,
+    free_shipping_threshold: 0,
   });
   const navigate = useNavigate();
 
@@ -121,6 +123,7 @@ const AdminCities = () => {
       delivery_time_days: city.delivery_time_days,
       is_active: city.is_active,
       sort_order: city.sort_order,
+      free_shipping_threshold: city.free_shipping_threshold || 0,
     });
     setShowModal(true);
   };
@@ -134,6 +137,7 @@ const AdminCities = () => {
       delivery_time_days: 1,
       is_active: true,
       sort_order: 0,
+      free_shipping_threshold: 0,
     });
     setShowModal(true);
   };
@@ -244,6 +248,9 @@ const AdminCities = () => {
                       وقت التوصيل
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      سقف الشحن المجاني
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       الحالة
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -286,6 +293,13 @@ const AdminCities = () => {
                           <span className="text-sm font-medium text-gray-900">
                             {city.delivery_time_days} {city.delivery_time_days === 1 ? 'يوم' : 'أيام'}
                           </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 font-medium">
+                          {city.free_shipping_threshold && city.free_shipping_threshold > 0 
+                            ? `${city.free_shipping_threshold.toLocaleString()} شيكل`
+                            : "غير محدد"}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -439,6 +453,20 @@ const AdminCities = () => {
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      سقف التوصيل المجاني (شيكل) - اتركه 0 لإلغاء الميزة
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.free_shipping_threshold}
+                      onChange={(e) => setFormData({ ...formData, free_shipping_threshold: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

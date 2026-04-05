@@ -59,6 +59,7 @@ class AdminCityController extends Controller
             'delivery_time_days' => 'required|integer|min:1',
             'is_active' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0',
+            'free_shipping_threshold' => 'nullable|numeric|min:0',
         ]);
 
         $city = City::create($validated);
@@ -91,6 +92,7 @@ class AdminCityController extends Controller
             'delivery_time_days' => 'sometimes|integer|min:1',
             'is_active' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0',
+            'free_shipping_threshold' => 'nullable|numeric|min:0',
         ]);
 
         $city->update($validated);
