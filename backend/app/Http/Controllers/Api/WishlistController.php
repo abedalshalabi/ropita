@@ -33,7 +33,7 @@ class WishlistController extends Controller
 
         return response()->json([
             'data' => ProductResource::collection($products),
-            'ids' => $wishlistItems->pluck('product_id')->unique()->values()->map(function ($id) {
+            'ids' => $products->pluck('id')->unique()->values()->map(function ($id) {
                 return (int) $id;
             })
         ]);

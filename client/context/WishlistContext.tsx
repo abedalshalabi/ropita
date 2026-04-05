@@ -9,6 +9,7 @@ interface WishlistContextType {
   isWishlisted: (productId: number) => boolean;
   toggleWishlist: (productId: number) => Promise<void>;
   refreshWishlist: () => Promise<void>;
+  setWishlistIds: (ids: number[]) => void;
 }
 
 const WishlistContext = createContext<WishlistContextType | undefined>(undefined);
@@ -23,9 +24,11 @@ const readGuestWishlist = (): number[] => {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    return parsed
-      .map((id) => Number(id))
-      .filter((id) => Number.isInteger(id) && id > 0);
+    const ids: number[] = parsed
+      .map((id: any) => Number(id))
+      .filter((id: number) => Number.isInteger(id) && id > 0);
+    
+    return Array.from(new Set(ids));
   } catch {
     return [];
   }
@@ -171,7 +174,8 @@ export const WishlistProvider = ({ children }: { children: ReactNode }) => {
     isWishlisted: (productId: number) => wishlistIds.includes(productId),
     toggleWishlist,
     refreshWishlist,
-  }), [wishlistIds, wishlistProcessing, toggleWishlist, refreshWishlist]);
+    setWishlistIds,
+  }), [wishlistIds, wishlistProcessing, toggleWishlist, refreshWishlist, setWishlistIds]);
 
   return (
     <WishlistContext.Provider value={value}>

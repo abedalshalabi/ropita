@@ -94,7 +94,7 @@ const getWishlistPriceInfo = (item: WishlistProduct) => {
 const Wishlist = () => {
   const navigate = useNavigate();
   const { token } = useAuth();
-  const { wishlistIds, toggleWishlist, wishlistProcessing } = useWishlist();
+  const { wishlistIds, toggleWishlist, wishlistProcessing, setWishlistIds } = useWishlist();
   const { addItem } = useCart();
   const [items, setItems] = useState<WishlistProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +106,11 @@ const Wishlist = () => {
 
         if (token) {
           const response = await wishlistAPI.getWishlist(token);
-          setItems(Array.isArray(response?.data) ? response.data : []);
+          const productsResponse = Array.isArray(response?.data) ? response.data : [];
+          setItems(productsResponse);
+          // Sync wishlist IDs from context after API load to ensure consistency
+          const validIds = productsResponse.map((p: any) => p.id);
+          setWishlistIds(validIds);
           return;
         }
 
@@ -124,6 +128,12 @@ const Wishlist = () => {
           .filter((item): item is WishlistProduct => item !== null);
 
         setItems(products);
+
+        // Update wishlist IDs in context if some products failed to load (e.g. deleted)
+        const validIds = products.map(p => p.id);
+        if (validIds.length !== wishlistIds.length) {
+          setWishlistIds(validIds);
+        }
       } catch (error) {
         console.error("Error loading wishlist page:", error);
         setItems([]);
@@ -133,7 +143,7 @@ const Wishlist = () => {
     };
 
     loadWishlist();
-  }, [token, wishlistIds]);
+  }, [token, wishlistIds.length]); // Use length as dependency to avoid infinite loops
 
   useEffect(() => {
     setItems((prev) => prev.filter((item) => wishlistIds.includes(item.id)));

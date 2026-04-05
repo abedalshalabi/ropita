@@ -68,25 +68,25 @@ class ProductController extends Controller
             $searchTerm = $request->search;
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('name', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('description', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('sku', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('features', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
-                  ->orWhereHas('category', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('categories', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('brand', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('variants', function ($q) use ($searchTerm) {
-                      $q->where('sku', 'like', '%' . $searchTerm . '%')
-                        ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
-                  });
+                    ->orWhere('description', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('sku', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('features', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
+                    ->orWhereHas('category', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('categories', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('brand', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('variants', function ($q) use ($searchTerm) {
+                        $q->where('sku', 'like', '%' . $searchTerm . '%')
+                            ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
+                    });
             });
         }
 
@@ -94,14 +94,14 @@ class ProductController extends Controller
         if ($request->has('category_id') && $request->category_id) {
             $categoryId = $request->category_id;
             $categoryIds = Category::getAllDescendantIdsFor($categoryId);
-            
-            $query->where(function($q) use ($categoryIds) {
+
+            $query->where(function ($q) use ($categoryIds) {
                 // Check direct category_id column
                 $q->whereIn('category_id', $categoryIds)
-                  // OR check many-to-many categories relationship
-                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
-                      $categoryQuery->whereIn('categories.id', $categoryIds);
-                  });
+                    // OR check many-to-many categories relationship
+                    ->orWhereHas('categories', function ($categoryQuery) use ($categoryIds) {
+                        $categoryQuery->whereIn('categories.id', $categoryIds);
+                    });
             });
         }
 
@@ -122,26 +122,26 @@ class ProductController extends Controller
         // filter_values in DB can be:
         //   Old format: {"الحجم": "كبير", "اللون": "أحمر"} (string per filter)
         //   New format: {"الحجم": ["كبير", "متوسط"], "اللون": ["أحمر", "أزرق"]} (array per filter)
-        
+
         // Collect all filters from both possible sources
         $allFilters = [];
-        
+
         // Source 1: filters parameter (array format)
         if ($request->has('filters') && is_array($request->input('filters'))) {
             $allFilters = array_merge($allFilters, $request->input('filters'));
         }
-        
+
         // Source 2: filter_values parameter (JSON string format)
         if ($request->has('filter_values')) {
-            $filterValues = is_string($request->filter_values) 
-                ? json_decode($request->filter_values, true) 
+            $filterValues = is_string($request->filter_values)
+                ? json_decode($request->filter_values, true)
                 : $request->filter_values;
-                
+
             if (is_array($filterValues)) {
                 $allFilters = array_merge($allFilters, $filterValues);
             }
         }
-        
+
         // Debug: Log what we're receiving
         Log::info('Filter request data:', [
             'has_filters' => $request->has('filters'),
@@ -149,12 +149,13 @@ class ProductController extends Controller
             'merged_filters' => $allFilters,
             'filter_count' => count($allFilters)
         ]);
-        
+
         // Apply all collected filters
         if (!empty($allFilters)) {
             foreach ($allFilters as $filterKey => $filterValue) {
-                if (empty($filterValue)) continue;
-                
+                if (empty($filterValue))
+                    continue;
+
                 // Handle incoming filter value - can be string or array
                 if (is_array($filterValue)) {
                     $values = array_map('trim', $filterValue);
@@ -165,27 +166,28 @@ class ProductController extends Controller
                     $values = array_map('trim', $values);
                 }
                 $values = array_filter($values); // Remove empty values
-                
-                if (empty($values)) continue;
-                
+
+                if (empty($values))
+                    continue;
+
                 // Each filter must match (AND between different filters)
                 // BUT within one filter, any of the selected values can match (OR between values)
                 // We use JSON_SEARCH which is much more robust for Arabic characters/Hamzas
                 // as it can match values regardless of the specific JSON path or key encoding.
-                $query->where(function($q) use ($filterKey, $values) {
+                $query->where(function ($q) use ($filterKey, $values) {
                     foreach ($values as $value) {
                         // 1. Search in main product filter_values
                         $q->orWhereRaw("JSON_SEARCH(filter_values, 'one', ?) IS NOT NULL", [$value]);
-                        
+
                         // Try with normalized value (Alif without Hamza) to be extra safe
                         $normalizedValue = preg_replace('/[أإآ]/u', 'ا', $value);
                         if ($value !== $normalizedValue) {
                             $q->orWhereRaw("JSON_SEARCH(filter_values, 'one', ?) IS NOT NULL", [$normalizedValue]);
                         }
-                        
+
                         // 2. OR search in any of its variants
-                        $q->orWhereHas('variants', function($variantQ) use ($value, $normalizedValue) {
-                            $variantQ->where(function($valQ) use ($value, $normalizedValue) {
+                        $q->orWhereHas('variants', function ($variantQ) use ($value, $normalizedValue) {
+                            $variantQ->where(function ($valQ) use ($value, $normalizedValue) {
                                 $valQ->whereRaw("JSON_SEARCH(variant_values, 'one', ?) IS NOT NULL", [$value]);
                                 if ($value !== $normalizedValue) {
                                     $valQ->orWhereRaw("JSON_SEARCH(variant_values, 'one', ?) IS NOT NULL", [$normalizedValue]);
@@ -200,7 +202,7 @@ class ProductController extends Controller
         // Apply sorting
         $sortBy = $request->get('sort', 'created_at');
         $sortOrder = $request->get('order', 'desc');
-        
+
         // Ensure sortOrder is valid
         $sortOrder = strtolower($sortOrder) === 'asc' ? 'asc' : 'desc';
 
@@ -210,14 +212,14 @@ class ProductController extends Controller
                 (SELECT MIN(pv.price) FROM product_variants pv WHERE pv.product_id = products.id),
                 products.price
             ) * (1 - COALESCE(products.discount_percentage, 0) / 100)";
-            
+
             $query->orderByRaw($effectivePriceSql . ' ' . $sortOrder);
         } else {
             $sortMap = [
-                'name' => 'name', 
+                'name' => 'name',
                 'price' => 'price', // Base column for direct sort if subquery fails
-                'created_at' => 'created_at', 
-                'rating' => 'rating', 
+                'created_at' => 'created_at',
+                'rating' => 'rating',
                 'sales_count' => 'sales_count',
                 'views_count' => 'views_count'
             ];
@@ -227,7 +229,7 @@ class ProductController extends Controller
 
         // Eager load everything needed to avoid N+1 queries
         $query->with(['variants', 'categories', 'category', 'brand', 'images']);
-        
+
         $perPage = $request->get('per_page', 15);
         $products = $query->paginate($perPage);
 
@@ -357,7 +359,7 @@ class ProductController extends Controller
 
         // Handle images: new image URLs and new image file uploads
         Log::info('Checking for images in request for new product');
-        
+
         // Get new image URLs (direct URLs)
         $newImageUrls = [];
         if ($request->has('image_urls')) {
@@ -370,7 +372,7 @@ class ProductController extends Controller
             }
             Log::info('New image URLs: ' . count($newImageUrls));
         }
-        
+
         // Process new image URLs
         $urlImages = [];
         if (!empty($newImageUrls)) {
@@ -386,7 +388,7 @@ class ProductController extends Controller
                 }
             }
         }
-        
+
         // Check for new image file uploads
         $imageFiles = [];
         if ($request->hasFile('images')) {
@@ -414,7 +416,7 @@ class ProductController extends Controller
                 Log::info('Found images via images[X] (bracket notation): ' . count($imageFiles));
             }
         }
-        
+
         // Process new image file uploads
         $uploadedImages = [];
         if (count($imageFiles) > 0) {
@@ -424,7 +426,7 @@ class ProductController extends Controller
                     Log::warning('Invalid image file at index ' . $index);
                     continue;
                 }
-                
+
                 // Validate file type and size
                 $validator = Validator::make(
                     ['image' => $imageFile],
@@ -432,29 +434,29 @@ class ProductController extends Controller
                         'image' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240', // 10MB max
                     ]
                 );
-                
+
                 if ($validator->fails()) {
                     Log::warning('Image validation failed at index ' . $index . ': ' . json_encode($validator->errors()));
                     continue;
                 }
             }
-            
+
             Log::info('Received ' . count($imageFiles) . ' image file(s) for new product');
-            
+
             // Process new images
             foreach ($imageFiles as $index => $imageFile) {
                 if (!$imageFile || !$imageFile->isValid()) {
                     continue; // Skip invalid files (already logged above)
                 }
-                
+
                 // Generate unique filename
                 $filename = time() . '_' . $index . '_' . Str::random(10) . '.' . $imageFile->getClientOriginalExtension();
-                
+
                 Log::info('Processing image ' . ($index + 1) . ': ' . $imageFile->getClientOriginalName() . ' -> ' . $filename);
-                
+
                 // Store the file
                 $path = $imageFile->storeAs('products', $filename, 'public');
-                
+
                 // Create image data array
                 $imageData = [
                     'image_path' => $path,
@@ -463,24 +465,24 @@ class ProductController extends Controller
                     'is_primary' => false, // Will be set based on total images
                     'sort_order' => count($urlImages) + $index, // Continue from URL images
                 ];
-                
+
                 $uploadedImages[] = $imageData;
-                
+
                 Log::info('Prepared image data for product ' . $product->id . ': ' . $path . ' (sort_order: ' . $imageData['sort_order'] . ')');
             }
         } else {
             Log::info('No image files received for new product');
             Log::info('Request all files: ' . json_encode($request->allFiles()));
         }
-        
+
         // Merge all images: URL images + uploaded images
         $allImages = array_merge($urlImages, $uploadedImages);
-        
+
         // Set is_primary for the first image
         if (count($allImages) > 0) {
             $allImages[0]['is_primary'] = true;
         }
-        
+
         // Update product images column
         if (count($allImages) > 0) {
             $product->images = $allImages;
@@ -497,13 +499,13 @@ class ProductController extends Controller
         if (isset($validated['variants']) && is_array($validated['variants'])) {
             foreach ($validated['variants'] as $index => $variantData) {
                 // Determine stock quantity for variant (fall back to 0 if not provided)
-                $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
+                $varStock = isset($variantData['stock_quantity']) ? (int) $variantData['stock_quantity'] : 0;
                 // If variant has its own price, use it, else null
-                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
-                
+                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float) $variantData['price'] : null;
+
                 // Handle variant images
                 $variantImages = [];
-                
+
                 // 1. Get variant image URLs if provided in JSON
                 if (isset($variantData['image_urls']) && is_array($variantData['image_urls'])) {
                     foreach ($variantData['image_urls'] as $idx => $url) {
@@ -520,18 +522,18 @@ class ProductController extends Controller
                 }
 
                 // 2. Handle uploaded variant images: check for variant_images_{index}[]
-                $variantIndex = $index; 
+                $variantIndex = $index;
                 $variantFiles = $request->file("variant_images_{$variantIndex}");
                 if ($variantFiles) {
                     if (!is_array($variantFiles)) {
                         $variantFiles = [$variantFiles];
                     }
-                    
+
                     foreach ($variantFiles as $vIdx => $vFile) {
                         if ($vFile && $vFile->isValid()) {
                             $filename = time() . "_var_{$variantIndex}_{$vIdx}_" . Str::random(10) . '.' . $vFile->getClientOriginalExtension();
                             $path = $vFile->storeAs('products/variants', $filename, 'public');
-                            
+
                             $variantImages[] = [
                                 'image_path' => $path,
                                 'image_url' => asset('storage/' . $path),
@@ -566,7 +568,7 @@ class ProductController extends Controller
     {
         // Prevent double increment in same session/refresh
         $viewedProducts = session()->get('viewed_products', []);
-        
+
         if (!in_array($product->id, $viewedProducts) && !$request->has('no_increment')) {
             $product->increment('views_count');
             $viewedProducts[] = $product->id;
@@ -646,7 +648,7 @@ class ProductController extends Controller
         if (isset($validated['brand_id']) && $validated['brand_id'] == 0) {
             $validated['brand_id'] = null;
         }
-        
+
         // Extract categories from validated data
         $categories = null;
         if (isset($validated['categories']) && is_array($validated['categories'])) {
@@ -709,7 +711,7 @@ class ProductController extends Controller
         if (isset($validated['features'])) {
             $product->features = $validated['features'];
         }
-        
+
         $product->save();
 
         // Sync categories if provided
@@ -719,7 +721,7 @@ class ProductController extends Controller
 
         // Handle images: existing images to keep, new image URLs, and new image file uploads
         Log::info('Checking for images in request for product ' . $product->id);
-        
+
         // Get existing images that should be kept (sent from frontend)
         $imagesToKeep = [];
         if ($request->has('existing_images')) {
@@ -739,7 +741,7 @@ class ProductController extends Controller
             }
             Log::info('No existing_images sent, keeping all current images: ' . count($imagesToKeep));
         }
-        
+
         // Get new image URLs (direct URLs)
         $newImageUrls = [];
         if ($request->has('image_urls')) {
@@ -752,7 +754,7 @@ class ProductController extends Controller
             }
             Log::info('New image URLs: ' . count($newImageUrls));
         }
-        
+
         // Process new image URLs
         $urlImages = [];
         if (!empty($newImageUrls)) {
@@ -760,12 +762,12 @@ class ProductController extends Controller
             if (!empty($imagesToKeep)) {
                 $maxSortOrder = max(array_column($imagesToKeep, 'sort_order')) ?? -1;
             }
-            
+
             foreach ($newImageUrls as $index => $url) {
                 if (filter_var($url, FILTER_VALIDATE_URL)) {
                     $sortOrder = $maxSortOrder + 1 + $index;
                     $isPrimary = (count($imagesToKeep) === 0 && $index === 0);
-                    
+
                     $urlImages[] = [
                         'image_path' => $url,
                         'image_url' => $url,
@@ -776,7 +778,7 @@ class ProductController extends Controller
                 }
             }
         }
-        
+
         // Check for new image file uploads
         $imageFiles = [];
         if ($request->hasFile('images')) {
@@ -804,7 +806,7 @@ class ProductController extends Controller
                 Log::info('Found images via images[X] (bracket notation): ' . count($imageFiles));
             }
         }
-        
+
         // Process new image file uploads
         $uploadedImages = [];
         if (count($imageFiles) > 0) {
@@ -814,7 +816,7 @@ class ProductController extends Controller
                     Log::warning('Invalid image file at index ' . $index);
                     continue;
                 }
-                
+
                 // Validate file type and size
                 $validator = Validator::make(
                     ['image' => $imageFile],
@@ -822,42 +824,42 @@ class ProductController extends Controller
                         'image' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240', // 10MB max
                     ]
                 );
-                
+
                 if ($validator->fails()) {
                     Log::warning('Image validation failed at index ' . $index . ': ' . json_encode($validator->errors()));
                     continue;
                 }
             }
-            
+
             Log::info('Received ' . count($imageFiles) . ' image file(s) for product ' . $product->id);
-            
+
             // Get the highest sort_order
             $maxSortOrder = -1;
             $allCurrentImages = array_merge($imagesToKeep, $urlImages);
             if (!empty($allCurrentImages)) {
                 $maxSortOrder = max(array_column($allCurrentImages, 'sort_order')) ?? -1;
             }
-            
+
             // Process new uploaded images
             foreach ($imageFiles as $index => $imageFile) {
                 if (!$imageFile || !$imageFile->isValid()) {
                     continue;
                 }
-                
+
                 // Generate unique filename
                 $filename = time() . '_' . $index . '_' . Str::random(10) . '.' . $imageFile->getClientOriginalExtension();
-                
+
                 Log::info('Processing image ' . ($index + 1) . ': ' . $imageFile->getClientOriginalName() . ' -> ' . $filename);
-                
+
                 // Store the file
                 $path = $imageFile->storeAs('products', $filename, 'public');
-                
+
                 // Calculate sort_order: start from maxSortOrder + 1
                 $sortOrder = $maxSortOrder + 1 + $index;
-                
+
                 // Only set as primary if this is the first new image AND there are no existing images
                 $isPrimary = (count($allCurrentImages) === 0 && $index === 0);
-                
+
                 // Create image data array
                 $imageData = [
                     'image_path' => $path,
@@ -866,20 +868,20 @@ class ProductController extends Controller
                     'is_primary' => $isPrimary,
                     'sort_order' => $sortOrder,
                 ];
-                
+
                 $uploadedImages[] = $imageData;
-                
+
                 Log::info('Prepared image data for product ' . $product->id . ': ' . $path . ' (sort_order: ' . $sortOrder . ', is_primary: ' . ($isPrimary ? 'true' : 'false') . ')');
             }
         }
-        
+
         // Merge all images: kept images + URL images + uploaded images
         $allImages = array_merge($imagesToKeep, $urlImages, $uploadedImages);
-        
+
         // Update product images column
         $product->images = $allImages;
         $product->save();
-        
+
         $finalImagesCount = count($allImages);
         Log::info('Total images for product ' . $product->id . ' after update: ' . $finalImagesCount . ' (kept: ' . count($imagesToKeep) . ', URLs: ' . count($urlImages) . ', uploaded: ' . count($uploadedImages) . ')');
 
@@ -890,17 +892,17 @@ class ProductController extends Controller
         if (isset($validated['variants']) && is_array($validated['variants'])) {
             // Delete existing variants
             $product->variants()->delete();
-            
+
             // Create new variants
             foreach ($validated['variants'] as $index => $variantData) {
                 // Determine stock quantity for variant (fall back to 0 if not provided)
-                $varStock = isset($variantData['stock_quantity']) ? (int)$variantData['stock_quantity'] : 0;
+                $varStock = isset($variantData['stock_quantity']) ? (int) $variantData['stock_quantity'] : 0;
                 // If variant has its own price, use it, else null
-                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float)$variantData['price'] : null;
-                
+                $varPrice = isset($variantData['price']) && $variantData['price'] !== '' ? (float) $variantData['price'] : null;
+
                 // Handle variant images
                 $variantImages = [];
-                
+
                 // 1. Get existing variant images if provided
                 if (isset($variantData['existing_images']) && is_array($variantData['existing_images'])) {
                     $variantImages = $variantData['existing_images'];
@@ -923,18 +925,18 @@ class ProductController extends Controller
                 }
 
                 // 3. Handle uploaded variant images: check for variant_images_{index}[]
-                $variantIndex = $index; 
+                $variantIndex = $index;
                 $variantFiles = $request->file("variant_images_{$variantIndex}");
                 if ($variantFiles) {
                     if (!is_array($variantFiles)) {
                         $variantFiles = [$variantFiles];
                     }
-                    
+
                     foreach ($variantFiles as $vIdx => $vFile) {
                         if ($vFile && $vFile->isValid()) {
                             $filename = time() . "_var_{$variantIndex}_{$vIdx}_" . Str::random(10) . '.' . $vFile->getClientOriginalExtension();
                             $path = $vFile->storeAs('products/variants', $filename, 'public');
-                            
+
                             $variantImages[] = [
                                 'image_path' => $path,
                                 'image_url' => asset('storage/' . $path),
@@ -1039,13 +1041,13 @@ class ProductController extends Controller
     {
         // Get all category IDs including subcategories
         $categoryIds = $category->getAllDescendantIds();
-        
+
         $products = Product::with(['category', 'brand'])
-            ->where(function($q) use ($categoryIds) {
+            ->where(function ($q) use ($categoryIds) {
                 $q->whereIn('category_id', $categoryIds)
-                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
-                      $categoryQuery->whereIn('categories.id', $categoryIds);
-                  });
+                    ->orWhereHas('categories', function ($categoryQuery) use ($categoryIds) {
+                        $categoryQuery->whereIn('categories.id', $categoryIds);
+                    });
             })
             ->where('is_active', true)
             ->where('in_stock', true)
@@ -1098,25 +1100,25 @@ class ProductController extends Controller
             $searchTerm = $request->search;
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('name', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('description', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('sku', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('features', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
-                  ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
-                  ->orWhereHas('category', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('categories', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('brand', function ($q) use ($searchTerm) {
-                      $q->where('name', 'like', '%' . $searchTerm . '%');
-                  })
-                  ->orWhereHas('variants', function ($q) use ($searchTerm) {
-                      $q->where('sku', 'like', '%' . $searchTerm . '%')
-                        ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
-                  });
+                    ->orWhere('description', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('short_description', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('sku', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('features', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('specifications', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('filter_values', 'like', '%' . $searchTerm . '%')
+                    ->orWhereHas('category', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('categories', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('brand', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', '%' . $searchTerm . '%');
+                    })
+                    ->orWhereHas('variants', function ($q) use ($searchTerm) {
+                        $q->where('sku', 'like', '%' . $searchTerm . '%')
+                            ->orWhere('variant_values', 'like', '%' . $searchTerm . '%');
+                    });
             });
         }
 
@@ -1140,11 +1142,11 @@ class ProductController extends Controller
         // Apply category filter - include products from this category and all its subcategories
         if ($request->has('category_id') && $request->category_id) {
             $categoryIds = Category::getAllDescendantIdsFor($request->category_id);
-            $query->where(function($q) use ($categoryIds) {
+            $query->where(function ($q) use ($categoryIds) {
                 $q->whereIn('category_id', $categoryIds)
-                  ->orWhereHas('categories', function($categoryQuery) use ($categoryIds) {
-                      $categoryQuery->whereIn('categories.id', $categoryIds);
-                  });
+                    ->orWhereHas('categories', function ($categoryQuery) use ($categoryIds) {
+                        $categoryQuery->whereIn('categories.id', $categoryIds);
+                    });
             });
         }
 
@@ -1328,7 +1330,7 @@ class ProductController extends Controller
 
         $file = $request->file('file');
         $uploadedFiles = $request->file('images') ?? [];
-        
+
         $fileMap = [];
         foreach ($uploadedFiles as $uFile) {
             $fileMap[$uFile->getClientOriginalName()] = $uFile;
@@ -1336,20 +1338,20 @@ class ProductController extends Controller
 
         // Use Excel::toArray to handle both CSV and XLSX
         $rows = Excel::toArray(new \stdClass(), $file)[0];
-        
+
         if (empty($rows)) {
             return response()->json(['message' => 'ملف فارغ'], 422);
         }
 
         $headers = array_shift($rows);
-        
+
         $rowCount = 0;
         $createdCount = 0;
         $updatedCount = 0;
         $errors = [];
-        
+
         // Helper to normalize Arabic strings for better matching
-        $normalize = function($str) {
+        $normalize = function ($str) {
             $str = trim($str);
             $str = preg_replace('/[أإآ]/u', 'ا', $str);
             $str = str_replace('ة', 'ه', $str);
@@ -1374,14 +1376,16 @@ class ProductController extends Controller
                 $data = [];
                 foreach ($headers as $index => $header) {
                     $cleanHeader = trim($header);
-                    if ($cleanHeader === '') continue;
+                    if ($cleanHeader === '')
+                        continue;
                     $data[$cleanHeader] = $row[$index] ?? null;
                 }
-                
+
                 $sku = trim($data['sku'] ?? '');
-                
+
                 // Skip empty rows or guidance rows
-                if (!$sku || str_contains($sku, 'GUIDE')) continue;
+                if (!$sku || str_contains($sku, 'GUIDE'))
+                    continue;
 
                 $rowCount++;
 
@@ -1389,18 +1393,18 @@ class ProductController extends Controller
                 if ($sku === $lastSku && $currentProduct) {
                     // This is a Variant Row ($sku === $lastSku)
                     $this->processVariantRow($currentProduct, $data, $fileMap);
-                    
+
                     // --- Filter Aggregation for Parent ---
                     $parentFilters = $currentProduct->filter_values ?: [];
                     $rowFilters = $this->extractFiltersFromRow($data, $normalize, $filterMap);
-                    
+
                     $updated = false;
                     foreach ($rowFilters as $name => $val) {
                         if (!isset($parentFilters[$name])) {
                             $parentFilters[$name] = [trim($val)];
                             $updated = true;
                         } else {
-                            $currentVals = (array)$parentFilters[$name];
+                            $currentVals = (array) $parentFilters[$name];
                             if (!in_array(trim($val), $currentVals)) {
                                 $currentVals[] = trim($val);
                                 $parentFilters[$name] = $currentVals;
@@ -1417,7 +1421,7 @@ class ProductController extends Controller
 
                 // New Product Row
                 $lastSku = $sku;
-                
+
                 // Identify Categories (can be multiple separated by comma)
                 $categoryIds = [];
                 $catInput = trim($data['categories'] ?? '');
@@ -1425,10 +1429,11 @@ class ProductController extends Controller
                     $catNames = explode(',', $catInput);
                     foreach ($catNames as $catName) {
                         $catName = trim($catName);
-                        if (!$catName) continue;
-                        
+                        if (!$catName)
+                            continue;
+
                         if (is_numeric($catName)) {
-                            $categoryIds[] = (int)$catName;
+                            $categoryIds[] = (int) $catName;
                         } else {
                             // Find by name or path
                             if (str_contains($catName, ' > ')) {
@@ -1436,7 +1441,7 @@ class ProductController extends Controller
                                 $childName = array_pop($parts);
                                 $parentName = array_pop($parts);
                                 $category = Category::where('name', $childName)
-                                    ->whereHas('parent', function($q) use ($parentName) {
+                                    ->whereHas('parent', function ($q) use ($parentName) {
                                         $q->where('name', $parentName);
                                     })->first();
                             } else {
@@ -1457,7 +1462,7 @@ class ProductController extends Controller
                 $brandInput = trim($data['brand_name_or_id'] ?? '');
                 if ($brandInput) {
                     if (is_numeric($brandInput)) {
-                        $brandId = (int)$brandInput;
+                        $brandId = (int) $brandInput;
                     } else {
                         $normBrand = $normalize($brandInput);
                         $brand = Brand::all()->first(fn($b) => $normalize($b->name) === $normBrand);
@@ -1468,7 +1473,7 @@ class ProductController extends Controller
                 // Process Filters (columns starting with "Filter: ")
                 $filterValues = [];
                 foreach ($data as $key => $value) {
-                    $keyString = (string)$key;
+                    $keyString = (string) $key;
                     if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
                         $rawName = str_replace('Filter: ', '', $keyString);
                         $normName = $normalize($rawName);
@@ -1485,19 +1490,19 @@ class ProductController extends Controller
                     'slug' => trim($data['slug'] ?? Str::slug($data['name'] ?? '')),
                     'description' => $data['description'] ?? null,
                     'short_description' => $data['short_description'] ?? null,
-                    'price' => (float)($data['price'] ?? 0),
-                    'original_price' => isset($data['original_price']) ? (float)$data['original_price'] : null,
-                    'cost_price' => isset($data['cost_price']) ? (float)$data['cost_price'] : null,
-                    'stock_quantity' => (int)($data['stock_quantity'] ?? 0),
+                    'price' => (float) ($data['price'] ?? 0),
+                    'original_price' => isset($data['original_price']) ? (float) $data['original_price'] : null,
+                    'cost_price' => isset($data['cost_price']) ? (float) $data['cost_price'] : null,
+                    'stock_quantity' => (int) ($data['stock_quantity'] ?? 0),
                     'category_id' => $primaryCategoryId,
                     'brand_id' => $brandId,
                     'is_active' => filter_var($data['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN),
                     'is_featured' => filter_var($data['is_featured'] ?? false, FILTER_VALIDATE_BOOLEAN),
                     'show_description' => filter_var($data['show_description'] ?? true, FILTER_VALIDATE_BOOLEAN),
                     'show_specifications' => filter_var($data['show_specifications'] ?? true, FILTER_VALIDATE_BOOLEAN),
-                    'filter_values' => $filterValues, 
-                    'stock_status' => !empty($data['stock_status']) ? $data['stock_status'] : ((int)($data['stock_quantity'] ?? 0) > 0 ? 'in_stock' : 'out_of_stock'),
-                    'in_stock' => (int)($data['stock_quantity'] ?? 0) > 0,
+                    'filter_values' => $filterValues,
+                    'stock_status' => !empty($data['stock_status']) ? $data['stock_status'] : ((int) ($data['stock_quantity'] ?? 0) > 0 ? 'in_stock' : 'out_of_stock'),
+                    'in_stock' => (int) ($data['stock_quantity'] ?? 0) > 0,
                 ];
 
                 // Update or Create Product
@@ -1505,7 +1510,7 @@ class ProductController extends Controller
 
                 // Aggregation Logic
                 $currentProduct = $product;
-                
+
                 if ($product->wasRecentlyCreated) {
                     $createdCount++;
                 } else {
@@ -1519,7 +1524,7 @@ class ProductController extends Controller
                 // Handle Images for the product
                 $this->processProductImages($product, $data, $fileMap);
                 $this->handleBulkSizeGuideImages($product, $data, $fileMap);
-                
+
                 // Handle initial variant if provided in the same row
                 if (!empty($data['variant_sku']) || !empty($filterValues)) {
                     $this->processVariantRow($product, $data, $fileMap);
@@ -1551,7 +1556,7 @@ class ProductController extends Controller
     {
         $filters = [];
         foreach ($data as $key => $value) {
-            $keyString = (string)$key;
+            $keyString = (string) $key;
             if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
                 $rawName = str_replace('Filter: ', '', $keyString);
                 $normName = $normalize($rawName);
@@ -1566,14 +1571,15 @@ class ProductController extends Controller
     {
         $variantValues = [];
         foreach ($data as $key => $value) {
-            $keyString = (string)$key;
+            $keyString = (string) $key;
             if (str_starts_with($keyString, 'Filter: ') && trim($value) !== '') {
                 $filterName = str_replace('Filter: ', '', $keyString);
                 $variantValues[$filterName] = trim($value);
             }
         }
 
-        if (empty($variantValues) && empty($data['variant_sku'])) return;
+        if (empty($variantValues) && empty($data['variant_sku']))
+            return;
 
         $variantImages = [];
         // 1. Variant image URLs
@@ -1586,7 +1592,7 @@ class ProductController extends Controller
                 ];
             }
         }
-        
+
         // 2. Variant image filenames
         $vFilenames = explode(',', $data['variant_image_filenames'] ?? '');
         foreach ($vFilenames as $vfName) {
@@ -1605,8 +1611,8 @@ class ProductController extends Controller
             ['sku' => $data['variant_sku'] ?? ($product->sku . '-' . Str::random(5))],
             [
                 'variant_values' => $variantValues,
-                'price' => (isset($data['variant_price']) && trim($data['variant_price']) !== '') ? (float)$data['variant_price'] : $product->price,
-                'stock_quantity' => isset($data['variant_stock']) ? (int)$data['variant_stock'] : 0,
+                'price' => (isset($data['variant_price']) && trim($data['variant_price']) !== '') ? (float) $data['variant_price'] : $product->price,
+                'stock_quantity' => isset($data['variant_stock']) ? (int) $data['variant_stock'] : 0,
                 'images' => !empty($variantImages) ? $variantImages : null,
             ]
         );
@@ -1615,7 +1621,7 @@ class ProductController extends Controller
     private function processProductImages(Product $product, array $data, array $fileMap)
     {
         $allImages = [];
-        
+
         // 1. URLs
         $urls = explode(',', $data['image_urls'] ?? '');
         foreach ($urls as $url) {
@@ -1638,7 +1644,7 @@ class ProductController extends Controller
                 $uFile = $fileMap[$fname];
                 $newFilename = time() . '_' . Str::random(10) . '_' . $fname;
                 $path = $uFile->storeAs('products', $newFilename, 'public');
-                
+
                 $allImages[] = [
                     'image_path' => $path,
                     'image_url' => asset('storage/' . $path),
@@ -1661,7 +1667,7 @@ class ProductController extends Controller
     private function handleBulkSizeGuideImages(Product $product, array $data, array $fileMap)
     {
         $allGuideImages = [];
-        
+
         // 1. URLs
         $urls = explode(',', $data['size_guide_image_urls'] ?? '');
         foreach ($urls as $url) {
@@ -1799,33 +1805,37 @@ class ProductController extends Controller
     {
         $hasVariants = $product->variants && $product->variants->count() > 0;
         $product->has_variants = $hasVariants;
-        
+
         // Critical check: If the manual status is "out_of_stock", it should OVERRIDE everything
         $manualOutStock = ($product->stock_status === 'out_of_stock');
-        
+
         if ($hasVariants) {
             $variantsToConsider = $product->variants;
-            
+
             // If filters are active, only consider variants that match selected filters
             if (!empty($allFilters)) {
-                $variantsToConsider = $product->variants->filter(function($variant) use ($allFilters) {
+                $variantsToConsider = $product->variants->filter(function ($variant) use ($allFilters) {
                     foreach ($allFilters as $filterKey => $filterValue) {
                         $values = is_array($filterValue) ? $filterValue : explode(',', $filterValue);
                         $values = array_map('trim', array_filter($values));
-                        if (empty($values)) continue;
+                        if (empty($values))
+                            continue;
 
                         $match = false;
                         $variantJson = json_encode($variant->variant_values, JSON_UNESCAPED_UNICODE);
-                        
+
                         foreach ($values as $val) {
                             $normalizedVal = preg_replace('/[أإآ]/u', 'ا', $val);
-                            if (mb_strpos($variantJson, '"' . $val . '"') !== false || 
-                                mb_strpos($variantJson, '"' . $normalizedVal . '"') !== false) {
+                            if (
+                                mb_strpos($variantJson, '"' . $val . '"') !== false ||
+                                mb_strpos($variantJson, '"' . $normalizedVal . '"') !== false
+                            ) {
                                 $match = true;
                                 break;
                             }
                         }
-                        if (!$match) return false;
+                        if (!$match)
+                            return false;
                     }
                     return true;
                 });
@@ -1835,7 +1845,7 @@ class ProductController extends Controller
             if ($variantsToConsider->count() > 0) {
                 $totalStock = $variantsToConsider->sum('stock_quantity');
                 $product->stock_quantity = $totalStock;
-                
+
                 // Manual status overrides
                 if ($manualOutStock) {
                     $product->in_stock = false;
@@ -1848,15 +1858,15 @@ class ProductController extends Controller
                     $product->in_stock = $totalStock > 0;
                     $product->stock_status = $totalStock > 0 ? 'in_stock' : 'out_of_stock';
                 }
-                
+
                 // Update price to use variant price (Lowest price of considered variants)
                 $minPrice = $variantsToConsider->min('price');
                 $maxPrice = $variantsToConsider->max('price');
                 if ($minPrice > 0) {
-                    $product->price = (float)$minPrice;
+                    $product->price = (float) $minPrice;
                     if ($minPrice != $maxPrice) {
                         $product->has_price_range = true;
-                        $product->max_price = (float)$maxPrice;
+                        $product->max_price = (float) $maxPrice;
                     }
                 }
             } else if (!empty($allFilters)) {
