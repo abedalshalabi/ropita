@@ -54,10 +54,18 @@ interface Product {
   category?: {
     id: number;
     name: string;
+    parent?: {
+      id: number;
+      name: string;
+    };
   };
   categories?: Array<{
     id: number;
     name: string;
+    parent?: {
+      id: number;
+      name: string;
+    };
   }>;
   brand?: {
     id: number;
@@ -86,6 +94,10 @@ interface Product {
 interface Category {
   id: number;
   name: string;
+  parent?: {
+    id: number;
+    name: string;
+  };
 }
 
 interface Brand {
@@ -846,7 +858,9 @@ const AdminProducts = () => {
                   >
                     <option value="">جميع الفئات</option>
                     {categories.map(category => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
+                      <option key={category.id} value={category.id}>
+                        {category.parent ? `${category.parent.name} > ${category.name}` : category.name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1218,7 +1232,7 @@ const AdminProducts = () => {
                                       key={category.id}
                                       className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"
                                     >
-                                      {category.name}
+                                      {category.parent ? `${category.parent.name} > ${category.name}` : category.name}
                                     </span>
                                   ))}
                                   {(!product.categories || product.categories.length === 0) && !product.category && (

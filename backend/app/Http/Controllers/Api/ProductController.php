@@ -228,7 +228,7 @@ class ProductController extends Controller
         }
 
         // Eager load everything needed to avoid N+1 queries
-        $query->with(['variants', 'categories', 'category', 'brand', 'images']);
+        $query->with(['variants', 'categories.parent', 'category.parent', 'brand', 'images']);
 
         $perPage = $request->get('per_page', 15);
         $products = $query->paginate($perPage);

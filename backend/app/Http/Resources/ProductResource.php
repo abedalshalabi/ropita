@@ -87,6 +87,10 @@ class ProductResource extends JsonResource
                     'name' => $this->category->name,
                     'slug' => $this->category->slug,
                     'color' => $this->category->color,
+                    'parent' => $this->category->parent ? [
+                        'id' => $this->category->parent->id,
+                        'name' => $this->category->parent->name,
+                    ] : null,
                 ] : null;
             }),
             'categories' => $this->whenLoaded('categories', function () {
@@ -96,6 +100,10 @@ class ProductResource extends JsonResource
                         'name' => $category->name,
                         'slug' => $category->slug,
                         'color' => $category->color,
+                        'parent' => $category->parent ? [
+                            'id' => $category->parent->id,
+                            'name' => $category->parent->name,
+                        ] : null,
                     ];
                 });
             }, function () {
@@ -109,6 +117,10 @@ class ProductResource extends JsonResource
                         'name' => $category->name,
                         'slug' => $category->slug,
                         'color' => $category->color,
+                        'parent' => $category->parent ? [
+                            'id' => $category->parent->id,
+                            'name' => $category->parent->name,
+                        ] : null,
                     ];
                 });
             }),

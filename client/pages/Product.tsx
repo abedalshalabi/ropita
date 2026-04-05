@@ -619,7 +619,7 @@ const Product = () => {
     }
     
     // 2. If no variant selected or selected variant HAS NO images, return cover image + base images
-    const baseImages = [...product.images];
+    const baseImages = product.images.filter(img => img !== "/placeholder.svg");
     if (product.cover_image) {
       const fullCoverUrl = product.cover_image.startsWith('http') 
         ? product.cover_image 
@@ -631,7 +631,8 @@ const Product = () => {
       }
     }
     
-    return baseImages;
+    // If still empty after filtering placeholder, return placeholder.
+    return baseImages.length > 0 ? baseImages : ["/placeholder.svg"];
   }, [product, matchingVariant]);
 
   // Reset selected image when variant changes
