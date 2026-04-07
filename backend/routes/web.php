@@ -44,3 +44,23 @@ Route::post('/maintenance/run-migrations', function (Request $request) {
         'output'  => $results,
     ]);
 });
+
+/**
+ * Temporary route to clear config cache when CLI access is unavailable.
+ * Secure it with an environment token: set CONFIG_CLEAR_HTTP_TOKEN in .env (same as the ?token= value).
+ * Example: /maintenance/clear-config?token=SECRET123
+ */
+Route::match(['GET', 'POST'], '/maintenance/clear-config', function (Request $request) {
+    $token = env('CONFIG_CLEAR_HTTP_TOKEN');
+
+    if (!$token || $request->query('token') !== $token) {
+        abort(403, 'Unauthorized');
+    }
+
+    Artisan::call('config:clear');
+
+    return response()->json([
+        'message' => 'Config cache cleared successfully',
+        'output' => trim(Artisan::output()),
+    ]);
+});
