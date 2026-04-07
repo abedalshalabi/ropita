@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderResource;
+use App\Mail\OrderPlacedMail;
 use App\Models\Order;
 use App\Models\Cart;
 use App\Models\Product;
@@ -15,8 +16,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class OrderController extends Controller
 {
@@ -376,12 +378,15 @@ class OrderController extends Controller
 
             DB::commit();
 
+            $order->load(['items.product', 'items.productVariant']);
+
             // Send WhatsApp notification
             $this->sendWhatsAppNotification($order);
+            $this->sendOrderEmails($order);
 
             return response()->json([
                 'message' => 'Order created successfully',
-                'data' => new OrderResource($order->load(['items.product']))
+                'data' => new OrderResource($order)
             ], 201);
 
         } catch (\Exception $e) {
@@ -729,6 +734,40 @@ class OrderController extends Controller
             Log::error('Failed to send WhatsApp notification', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Send order confirmation emails to customer and configured admins.
+     */
+    private function sendOrderEmails(Order $order): void
+    {
+        try {
+            if (filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
+                Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
+            }
+
+            $adminRecipientsRaw = SiteSetting::getValue('order_notification_admin_emails', []);
+            if (!is_array($adminRecipientsRaw)) {
+                $adminRecipientsRaw = [];
+            }
+
+            $adminRecipients = collect($adminRecipientsRaw)
+                ->filter(fn ($email) => is_string($email) && filter_var(trim($email), FILTER_VALIDATE_EMAIL))
+                ->map(fn ($email) => trim($email))
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($adminRecipients)) {
+                Mail::to($adminRecipients)->send(new OrderPlacedMail($order, 'admin'));
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send order emails', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'error' => $e->getMessage(),
             ]);
         }
     }

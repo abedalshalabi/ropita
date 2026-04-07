@@ -168,6 +168,7 @@ function AdminLayout({ children }: AdminLayoutProps) {
     { title: 'الشحن والتوصيل', tab: 'shipping' },
     { title: 'الإرجاع والاستبدال', tab: 'returns' },
     { title: 'الضمان', tab: 'warranty' },
+    { title: 'إشعارات الطلبات', tab: 'notifications' },
     { title: 'الإحصائيات والعدادات', tab: 'analytics' },
   ];
 

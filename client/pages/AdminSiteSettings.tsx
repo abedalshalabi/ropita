@@ -422,6 +422,7 @@ const tabs: Tab[] = [
   { id: 'shipping', label: 'الشحن والتوصيل', group: 'shipping' },
   { id: 'returns', label: 'الإرجاع والاستبدال', group: 'returns' },
   { id: 'warranty', label: 'الضمان', group: 'warranty' },
+  { id: 'notifications', label: 'إشعارات الطلبات', group: 'notifications' },
   { id: 'analytics', label: 'الإحصائيات والعدادات', group: 'analytics' },
 ];
 
@@ -793,6 +794,47 @@ const AdminSiteSettings = () => {
         }
 
         if (Array.isArray(setting.value)) {
+          if (setting.key === 'order_notification_admin_emails') {
+            return (
+              <div className="space-y-3">
+                {(setting.value as string[]).map((item: string, index: number) => (
+                  <div key={`${setting.key}-${index}`} className="flex items-center gap-2">
+                    <Input
+                      type="email"
+                      value={item || ''}
+                      onChange={(e) => {
+                        const newArray = [...setting.value];
+                        newArray[index] = e.target.value;
+                        handleSettingChange(setting.key, newArray);
+                      }}
+                      placeholder="admin@example.com"
+                      className="flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveArrayItem(setting.key, index)}
+                      className="text-red-600 hover:text-red-800 p-2"
+                      title="حذف"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => handleAddArrayItem(setting.key, '')}
+                  className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-gray-600 hover:border-emerald-500 hover:text-emerald-600 flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  إضافة إيميل أدمن
+                </button>
+                <p className="text-xs text-gray-500">
+                  سيصل بريد الطلب الجديد إلى الزبون وإلى جميع الإيميلات المضافة هنا.
+                </p>
+              </div>
+            );
+          }
+
           // Check if it's an array of strings (like contact_subjects)
           const isStringArray = setting.value.length > 0 && typeof setting.value[0] === 'string';
 
