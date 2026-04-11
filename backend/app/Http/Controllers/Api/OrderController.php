@@ -378,7 +378,7 @@ class OrderController extends Controller
 
             DB::commit();
 
-            $order->load(['items.product', 'items.productVariant']);
+            $order->load(['items.product.images', 'items.productVariant']);
 
             // Send WhatsApp notification
             $this->sendWhatsAppNotification($order);
