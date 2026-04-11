@@ -25,8 +25,9 @@ class OrderPlacedMail extends Mailable
 
         $siteName = SiteSetting::getValue('site_name', config('app.name'));
         $frontendUrl = rtrim((string) env('FRONTEND_URL', 'https://ropita.ps/V1'), '/');
-        $backendUrl = rtrim((string) config('app.url'), '/');
+        $backendUrl = $this->resolveBackendPublicUrl($frontendUrl);
         $headerLogo = SiteSetting::getValue('header_logo', '/logo.webp');
+        $headerPhone = SiteSetting::getValue('header_phone', '');
         $logoUrl = $this->makeFrontendAssetUrl($headerLogo, $frontendUrl, $backendUrl);
         $successUrl = $frontendUrl . '/order-success';
 
@@ -42,6 +43,7 @@ class OrderPlacedMail extends Mailable
                 'frontendUrl' => $frontendUrl,
                 'successUrl' => $successUrl,
                 'logoUrl' => $logoUrl,
+                'headerPhone' => $headerPhone,
                 'paymentMethodLabel' => $this->getPaymentMethodLabel(),
                 'orderStatusLabel' => $this->getOrderStatusLabel(),
                 'customerAddress' => $this->getCustomerAddress(),
@@ -183,5 +185,32 @@ class OrderPlacedMail extends Mailable
         }
 
         return $backendUrl . '/storage/' . ltrim($path, '/');
+    }
+
+    private function resolveBackendPublicUrl(string $frontendUrl): string
+    {
+        $configuredUrl = rtrim((string) env('BACKEND_PUBLIC_URL', ''), '/');
+        if ($configuredUrl !== '') {
+            return $configuredUrl;
+        }
+
+        $appUrl = rtrim((string) config('app.url'), '/');
+        if ($appUrl !== '' && !str_contains($appUrl, 'localhost') && !str_contains($appUrl, '127.0.0.1')) {
+            return $appUrl;
+        }
+
+        $origin = $this->extractUrlOrigin($frontendUrl);
+        return $origin . '/ropita/public';
+    }
+
+    private function extractUrlOrigin(string $url): string
+    {
+        $parts = parse_url($url);
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? 'ropita.ps';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        return "{$scheme}://{$host}{$port}";
     }
 }
