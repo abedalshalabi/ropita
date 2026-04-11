@@ -90,7 +90,9 @@ class OrderPlacedMail extends Mailable
 
             $imagePath = null;
             if ($product) {
-                $primaryImage = $product->images
+                $productImages = $this->resolveProductImages($product);
+
+                $primaryImage = $productImages
                     ->sortBy([
                         ['is_primary', 'desc'],
                         ['sort_order', 'asc'],
@@ -113,6 +115,27 @@ class OrderPlacedMail extends Mailable
                 'product_url' => $product ? $frontendUrl . '/product/' . $product->id : null,
             ];
         });
+    }
+
+    private function resolveProductImages($product): Collection
+    {
+        if (!$product) {
+            return collect();
+        }
+
+        // Product has both an "images" casted attribute and an "images()" relation.
+        // Always normalize to a Collection so mail rendering does not break checkout.
+        if ($product->relationLoaded('images')) {
+            $images = $product->getRelation('images');
+            return $images instanceof Collection ? $images : collect($images);
+        }
+
+        try {
+            return $product->images()->get();
+        } catch (\Throwable) {
+            $images = $product->images ?? [];
+            return collect(is_array($images) ? $images : []);
+        }
     }
 
     private function makeFrontendAssetUrl(?string $path, string $frontendUrl, string $backendUrl): string
