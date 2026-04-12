@@ -37,6 +37,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import adminApi, { adminProductsAPI, adminCategoriesAPI, adminBrandsAPI } from '@/services/adminApi';
+import { getStorageUrl } from '@/config/env';
 import Swal from 'sweetalert2';
 
 interface Variant {
@@ -72,6 +73,14 @@ interface Brand {
 
 const AdminProductCreate: React.FC = () => {
   const navigate = useNavigate();
+
+  const normalizePreviewSrc = (path: string | null | undefined): string => {
+    if (!path) return '';
+    if (path.startsWith('data:') || path.startsWith('blob:')) {
+      return path;
+    }
+    return getStorageUrl(path);
+  };
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -1469,7 +1478,7 @@ const AdminProductCreate: React.FC = () => {
                           .map((imageUrl, index) => (
                             <div key={`url-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
                               <img
-                                src={imageUrl as string}
+                                src={normalizePreviewSrc(imageUrl as string)}
                                 alt={`صورة من رابط ${index + 1}`}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -1577,7 +1586,7 @@ const AdminProductCreate: React.FC = () => {
                           .map((imageUrl, index) => (
                             <div key={`size-guide-url-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
                               <img
-                                src={imageUrl as string}
+                                src={normalizePreviewSrc(imageUrl as string)}
                                 alt={`دليل المقاسات ${index + 1}`}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -2103,7 +2112,7 @@ const AdminProductCreate: React.FC = () => {
                                   <div className="flex flex-wrap gap-1">
                                     {variant.image_previews?.map((preview, imgIdx) => (
                                       <div key={imgIdx} className="relative w-8 h-8 group border rounded overflow-hidden bg-gray-50">
-                                        <img src={preview} className="w-full h-full object-cover" alt="" />
+                                        <img src={normalizePreviewSrc(preview)} className="w-full h-full object-cover" alt="" />
                                         <button 
                                           type="button"
                                           onClick={() => handleRemoveVariantImage(index, imgIdx)}

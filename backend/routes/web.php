@@ -323,12 +323,19 @@ Route::match(['GET', 'POST'], '/maintenance/inspect-media-links', function (Requ
         ->where('logo', '!=', '')
         ->first();
 
-    $product = Product::query()
-        ->where(function ($query) {
+    $requestedProductId = $request->query('product_id');
+    $productQuery = Product::query();
+
+    if ($requestedProductId) {
+        $productQuery->where('id', $requestedProductId);
+    } else {
+        $productQuery->where(function ($query) {
             $query->whereNotNull('cover_image')
                 ->orWhereNotNull('images');
-        })
-        ->first();
+        });
+    }
+
+    $product = $productQuery->first();
 
     $order = Order::query()
         ->with(['items.product'])
