@@ -36,6 +36,7 @@ import {
   Zap
 } from "lucide-react";
 import { adminProductsAPI, adminCategoriesAPI, adminBrandsAPI } from "../services/adminApi";
+import { getStorageUrl } from "../config/env";
 import Swal from "sweetalert2";
 
 interface Product {
@@ -168,6 +169,15 @@ const AdminProducts = () => {
   const [searchInput, setSearchInput] = useState("");
 
   const navigate = useNavigate();
+
+  const getProductThumbnail = (product: Product): string => {
+    const firstImage = product.images?.[0];
+    if (!firstImage?.image_url) {
+      return "/placeholder.svg";
+    }
+
+    return getStorageUrl(firstImage.image_url) || "/placeholder.svg";
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -1174,7 +1184,7 @@ const AdminProducts = () => {
                                     {product.images?.[0] ? (
                                       <img
                                         className="h-12 w-12 rounded-lg object-cover"
-                                        src={product.images[0].image_url}
+                                        src={getProductThumbnail(product)}
                                         alt={product.images[0].alt_text || product.name}
                                         onError={(e) => {
                                           e.currentTarget.src = '/placeholder.svg';
@@ -1455,7 +1465,7 @@ const AdminProducts = () => {
                         <div className={`${viewMode === "grid" ? "aspect-square" : "w-32 h-32"} bg-gray-100 relative group`}>
                           {product.images?.[0] ? (
                             <img
-                              src={product.images[0].image_url}
+                              src={getProductThumbnail(product)}
                               alt={product.images[0].alt_text || product.name}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                               onError={(e) => {
