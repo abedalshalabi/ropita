@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Category;
 use App\Models\Brand;
 use App\Models\Offer;
+use App\Support\AppUrl;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 
@@ -28,9 +29,10 @@ class SitemapController extends Controller
      */
     private function generateSitemap(): string
     {
-        $siteUrl = config('app.url');
-        if (!$siteUrl || str_contains($siteUrl, 'localhost')) {
-            $siteUrl = 'https://abozaina.ps';
+        $siteUrl = AppUrl::frontend();
+
+        if ($siteUrl === '') {
+            return '';
         }
         
         $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";

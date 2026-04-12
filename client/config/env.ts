@@ -1,29 +1,67 @@
-const getBasePath = () => {
-  if (!import.meta.env.DEV) {
-    const host = window.location.origin;
-    const path = window.location.pathname;
-    // قائمة ببعض المسارات المعروفة للتفريق بينها وبين اسم المجلد الفرعي
-    const knownRoutes = ['admin', 'products', 'cart', 'checkout', 'product', 'categories', 'brands', 'login', 'register', 'dashboard', 'about', 'contact', 'shipping', 'returns', 'warranty', 'order-success', 'offers'];
-    const segments = path.split('/').filter(p => p !== "");
-    
-    // إذا كان الجزء الأول من المسار ليس من الصفحات المعروفة، فهو اسم المجلد الفرعي
-    const subfolder = (segments.length > 0 && !knownRoutes.includes(segments[0])) ? `/${segments[0]}` : "";
-    return subfolder;
-  }
-  return "";
+const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
+const ensureLeadingSlash = (value: string): string => {
+  if (!value) return '';
+  return value.startsWith('/') ? value : `/${value}`;
 };
 
-export const BASE_PATH = getBasePath();
-export const BASE_URL = !import.meta.env.DEV 
-  ? window.location.origin + BASE_PATH + '/ropita/public'
-  : (window.location.port === '8080' || window.location.port === '5173' ? `http://${window.location.hostname}:8000` : `http://${window.location.hostname}/ropita/backend/public`);
+const normalizePath = (value: string | undefined): string => {
+  if (!value) return '';
+  const trimmed = trimTrailingSlash(value.trim());
+  if (!trimmed || trimmed === '/') return '';
+  return ensureLeadingSlash(trimmed);
+};
+
+const resolveAbsoluteUrl = (value: string | undefined, origin: string): string => {
+  if (!value) return '';
+  const trimmed = trimTrailingSlash(value.trim());
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  return `${origin}${ensureLeadingSlash(trimmed)}`;
+};
+
+const getConfiguredFrontendBasePath = () => {
+  const explicitBasePath = normalizePath(import.meta.env.VITE_FRONTEND_BASE_PATH);
+  if (explicitBasePath) {
+    return explicitBasePath;
+  }
+
+  const frontendUrl = resolveAbsoluteUrl(import.meta.env.VITE_FRONTEND_URL, window.location.origin);
+  if (!frontendUrl) {
+    return '';
+  }
+
+  const pathname = normalizePath(new URL(frontendUrl).pathname);
+  return pathname;
+};
+
+export const BASE_PATH = getConfiguredFrontendBasePath();
+
+const getBackendPublicUrl = () => {
+  const configuredAbsoluteUrl = resolveAbsoluteUrl(import.meta.env.VITE_BACKEND_PUBLIC_URL, window.location.origin);
+  if (configuredAbsoluteUrl) {
+    return configuredAbsoluteUrl;
+  }
+
+  const configuredRelativePath = normalizePath(import.meta.env.VITE_BACKEND_PUBLIC_PATH);
+  if (configuredRelativePath) {
+    return `${window.location.origin}${configuredRelativePath}`;
+  }
+
+  if (import.meta.env.DEV) {
+    return `http://${window.location.hostname}:8000`;
+  }
+
+  return `${window.location.origin}${BASE_PATH}`;
+};
+
+export const BASE_URL = getBackendPublicUrl();
 
 export const API_BASE_URL = `${BASE_URL}/api`.replace(/\/$/, '');
 export const API_V1_BASE_URL = `${API_BASE_URL}/v1`;
 
-export const STORAGE_BASE_URL = !import.meta.env.DEV 
-  ? `${window.location.origin}${BASE_PATH}/ropita/public/storage`.replace(/\/$/, '')
-  : `${BASE_URL}/storage`.replace(/\/$/, '');
+export const STORAGE_BASE_URL = `${BASE_URL}/storage`.replace(/\/$/, '');
 
 const extractStorageRelativePath = (path: string): string | null => {
   const normalized = path.replace(/\\/g, "/");
@@ -57,11 +95,11 @@ export const getStorageUrl = (path: string | null | undefined): string => {
     return `${STORAGE_BASE_URL}/${relativePath}`;
   }
 
-  if (cleanPath === 'logo.webp' || cleanPath === '/logo.webp') return `${window.location.origin}/logo.webp`;
+  if (cleanPath === 'logo.webp' || cleanPath === '/logo.webp') return `${window.location.origin}${BASE_PATH}/logo.webp`;
   if (cleanPath.startsWith('http')) return cleanPath;
   if (cleanPath.startsWith('/storage')) return `${BASE_URL}${cleanPath}`;
   if (cleanPath.startsWith('storage')) return `${BASE_URL}/${cleanPath}`;
-  if (cleanPath.startsWith('/')) return `${window.location.origin}${cleanPath}`;
+  if (cleanPath.startsWith('/')) return `${window.location.origin}${BASE_PATH}${cleanPath}`;
   
   return `${STORAGE_BASE_URL}/${cleanPath}`;
 };

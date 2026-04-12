@@ -40,22 +40,10 @@ class MediaUrl
             return $normalized;
         }
 
-        $base = rtrim((string) env('BACKEND_PUBLIC_URL', ''), '/');
+        $base = AppUrl::backendPublic();
 
         if ($base === '') {
-            $appUrl = rtrim((string) config('app.url'), '/');
-            if ($appUrl !== '' && !str_contains($appUrl, 'localhost') && !str_contains($appUrl, '127.0.0.1')) {
-                $base = $appUrl;
-            }
-        }
-
-        if ($base === '') {
-            $frontendUrl = (string) env('FRONTEND_URL', 'https://ropita.ps/V1');
-            $parts = parse_url($frontendUrl);
-            $scheme = $parts['scheme'] ?? 'https';
-            $host = $parts['host'] ?? 'ropita.ps';
-            $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-            $base = "{$scheme}://{$host}{$port}/ropita/public";
+            return null;
         }
 
         if (str_starts_with($normalized, '/')) {

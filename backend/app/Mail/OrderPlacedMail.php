@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\Order;
 use App\Models\SiteSetting;
+use App\Support\AppUrl;
 use App\Support\MediaUrl;
 use Illuminate\Bus\Queueable;
 use Illuminate\Support\Collection;
@@ -25,8 +26,8 @@ class OrderPlacedMail extends Mailable
         $this->order->loadMissing(['items.product.images', 'items.productVariant']);
 
         $siteName = SiteSetting::getValue('site_name', config('app.name'));
-        $frontendUrl = rtrim((string) env('FRONTEND_URL', 'https://ropita.ps/V1'), '/');
-        $backendUrl = $this->resolveBackendPublicUrl($frontendUrl);
+        $frontendUrl = AppUrl::frontend();
+        $backendUrl = AppUrl::backendPublic();
         $headerLogo = SiteSetting::getValue('header_logo', '/logo.webp');
         $headerPhone = SiteSetting::getValue('header_phone', '');
         $logoUrl = $this->resolveMailLogoUrl($headerLogo, $frontendUrl, $backendUrl);
@@ -188,31 +189,9 @@ class OrderPlacedMail extends Mailable
         return $backendUrl . '/storage/' . ltrim($path, '/');
     }
 
-    private function resolveBackendPublicUrl(string $frontendUrl): string
-    {
-        $configuredUrl = rtrim((string) env('BACKEND_PUBLIC_URL', ''), '/');
-        if ($configuredUrl !== '') {
-            return $configuredUrl;
-        }
-
-        $appUrl = rtrim((string) config('app.url'), '/');
-        if ($appUrl !== '' && !str_contains($appUrl, 'localhost') && !str_contains($appUrl, '127.0.0.1')) {
-            return $appUrl;
-        }
-
-        $origin = $this->extractUrlOrigin($frontendUrl);
-        return $origin . '/ropita/public';
-    }
-
     private function extractUrlOrigin(string $url): string
     {
-        $parts = parse_url($url);
-
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'] ?? 'ropita.ps';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-
-        return "{$scheme}://{$host}{$port}";
+        return AppUrl::origin($url);
     }
 
     private function resolveMailLogoUrl(?string $headerLogo, string $frontendUrl, string $backendUrl): string
