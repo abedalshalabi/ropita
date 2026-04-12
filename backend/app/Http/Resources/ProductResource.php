@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class ProductResource extends JsonResource
 {
@@ -50,17 +51,7 @@ class ProductResource extends JsonResource
                         }
                         if (is_array($image)) {
                             $imagePath = $image['image_path'] ?? $image['path'] ?? '';
-                            $imageUrl = $image['image_url'] ?? '';
-                            if (empty($imageUrl) && !empty($imagePath)) {
-                                $imageUrl = asset('storage/' . $imagePath);
-                            }
-                            return [
-                                'image_path' => $imagePath,
-                                'image_url' => $imageUrl,
-                                'alt_text' => $image['alt_text'] ?? null,
-                                'is_primary' => (bool) ($image['is_primary'] ?? false),
-                                'sort_order' => (int) ($image['sort_order'] ?? 0),
-                            ];
+                            return MediaUrl::normalizeImageEntry($image + ['image_path' => $imagePath]);
                         }
                         return $image;
                     }, $variantImages);
@@ -155,19 +146,7 @@ class ProductResource extends JsonResource
                         
                         // Extract values with safe defaults
                         $imagePath = $image['image_path'] ?? $image['path'] ?? '';
-                        $imageUrl = $image['image_url'] ?? '';
-                        if (empty($imageUrl) && !empty($imagePath)) {
-                            $imageUrl = asset('storage/' . $imagePath);
-                        }
-                        
-                        $result[] = [
-                            'id' => $image['id'] ?? null,
-                            'image_path' => $imagePath,
-                            'image_url' => $imageUrl,
-                            'alt_text' => $image['alt_text'] ?? null,
-                            'is_primary' => (bool) ($image['is_primary'] ?? false),
-                            'sort_order' => (int) ($image['sort_order'] ?? 0),
-                        ];
+                        $result[] = MediaUrl::normalizeImageEntry($image + ['image_path' => $imagePath]);
                     }
                     return $result;
                 }
@@ -176,31 +155,19 @@ class ProductResource extends JsonResource
                 if ($images instanceof \Illuminate\Database\Eloquent\Collection) {
                     return $images->map(function ($image) {
                         if (is_array($image)) {
-                            $imagePath = $image['image_path'] ?? $image['path'] ?? '';
-                            $imageUrl = $image['image_url'] ?? '';
-                            if (empty($imageUrl) && !empty($imagePath)) {
-                                $imageUrl = asset('storage/' . $imagePath);
-                            }
-                            return [
-                                'id' => $image['id'] ?? null,
-                                'image_path' => $imagePath,
-                                'image_url' => $imageUrl,
-                                'alt_text' => $image['alt_text'] ?? null,
-                                'is_primary' => (bool) ($image['is_primary'] ?? false),
-                                'sort_order' => (int) ($image['sort_order'] ?? 0),
-                            ];
+                            return MediaUrl::normalizeImageEntry($image);
                         }
                         if (!is_object($image) || !isset($image->id)) {
                             return null;
                         }
-                        return [
+                        return MediaUrl::normalizeImageEntry([
                             'id' => $image->id,
                             'image_path' => $image->image_path ?? '',
-                            'image_url' => $image->image_path ? asset('storage/' . $image->image_path) : '',
+                            'image_url' => $image->image_url ?? ($image->image_path ?? ''),
                             'alt_text' => $image->alt_text ?? null,
                             'is_primary' => (bool) ($image->is_primary ?? false),
                             'sort_order' => (int) ($image->sort_order ?? 0),
-                        ];
+                        ]);
                     })->filter()->values()->toArray();
                 }
                 
@@ -221,8 +188,8 @@ class ProductResource extends JsonResource
 
                     if (is_string($image)) {
                         $result[] = [
-                            'image_path' => $image,
-                            'image_url' => str_starts_with($image, 'http') ? $image : asset('storage/' . ltrim($image, '/')),
+                            'image_path' => MediaUrl::normalizeStoredPath($image) ?? '',
+                            'image_url' => MediaUrl::publicUrl($image) ?? '',
                         ];
                         continue;
                     }
@@ -236,14 +203,11 @@ class ProductResource extends JsonResource
                     }
 
                     $imagePath = $image['image_path'] ?? $image['path'] ?? '';
-                    $imageUrl = $image['image_url'] ?? '';
-                    if (empty($imageUrl) && !empty($imagePath)) {
-                        $imageUrl = str_starts_with($imagePath, 'http') ? $imagePath : asset('storage/' . ltrim($imagePath, '/'));
-                    }
+                    $imageUrl = MediaUrl::publicUrl($image['image_url'] ?? $imagePath) ?? '';
 
                     if (!empty($imageUrl)) {
                         $result[] = [
-                            'image_path' => $imagePath,
+                            'image_path' => MediaUrl::normalizeStoredPath($imagePath) ?? '',
                             'image_url' => $imageUrl,
                         ];
                     }
@@ -268,7 +232,7 @@ class ProductResource extends JsonResource
             }),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
-            'cover_image' => $this->cover_image ? (str_starts_with($this->cover_image, 'http') ? $this->cover_image : asset('storage/' . $this->cover_image)) : null,
+            'cover_image' => MediaUrl::publicUrl($this->cover_image),
             'has_variants' => (bool)$this->has_variants,
             'has_price_range' => (bool)$this->has_price_range,
             'max_price' => (float)$this->max_price,

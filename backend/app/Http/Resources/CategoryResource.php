@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class CategoryResource extends JsonResource
 {
@@ -19,7 +20,7 @@ class CategoryResource extends JsonResource
             'name' => $this->name,
             'slug' => $this->slug,
             'description' => $this->description,
-            'image' => $this->image,
+            'image' => MediaUrl::publicUrl($this->image),
             'color' => $this->color,
             'is_active' => $this->is_active,
             'show_in_slider' => $this->show_in_slider,

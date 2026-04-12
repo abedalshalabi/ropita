@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class CartResource extends JsonResource
 {
@@ -43,14 +44,17 @@ class CartResource extends JsonResource
                     'slug' => $this->product->brand->slug,
                 ] : null,
                 'images' => collect($this->product->images ?? [])->map(function ($image) {
-                    return [
-                        'id' => $image->id ?? ($image['id'] ?? null),
-                        'image_path' => $image->image_path ?? ($image['image_path'] ?? ''),
-                        'alt_text' => $image->alt_text ?? ($image['alt_text'] ?? null),
-                        'is_primary' => $image->is_primary ?? ($image['is_primary'] ?? false),
-                    ];
+                    $imageArray = is_object($image) ? [
+                        'id' => $image->id ?? null,
+                        'image_path' => $image->image_path ?? '',
+                        'image_url' => $image->image_url ?? ($image->image_path ?? ''),
+                        'alt_text' => $image->alt_text ?? null,
+                        'is_primary' => $image->is_primary ?? false,
+                    ] : (array) $image;
+
+                    return MediaUrl::normalizeImageEntry($imageArray);
                 }),
-                'cover_image' => $this->product->cover_image ? (str_starts_with($this->product->cover_image, 'http') ? $this->product->cover_image : asset('storage/' . $this->product->cover_image)) : null,
+                'cover_image' => MediaUrl::publicUrl($this->product->cover_image),
             ],
             'product_variant_id' => $this->product_variant_id,
             'variant_values' => $this->variant_values,

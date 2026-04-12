@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class BrandResource extends JsonResource
 {
@@ -19,7 +20,7 @@ class BrandResource extends JsonResource
             'name' => $this->name,
             'slug' => $this->slug,
             'description' => $this->description,
-            'logo' => $this->logo,
+            'logo' => MediaUrl::publicUrl($this->logo),
             'website' => $this->website,
             'is_active' => $this->is_active,
             'sort_order' => $this->sort_order,

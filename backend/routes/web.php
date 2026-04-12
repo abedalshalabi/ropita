@@ -3,8 +3,15 @@
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Api\SitemapController;
+use App\Support\MediaUrl;
+use App\Models\SiteSetting;
+use App\Models\Category;
+use App\Models\Brand;
+use App\Models\Product;
+use App\Models\Order;
 
 Route::get('/', function () {
     return view('welcome');
@@ -123,4 +130,300 @@ Route::match(['GET', 'POST'], '/maintenance/test-mail', function (Request $reque
             ],
         ], 500);
     }
+});
+
+/**
+ * Temporary route to normalize image paths stored in the database.
+ * Secure it with an environment token: set MEDIA_NORMALIZE_HTTP_TOKEN in .env (same as the ?token= value).
+ * Example: /maintenance/normalize-media-paths?token=SECRET123
+ */
+Route::match(['GET', 'POST'], '/maintenance/normalize-media-paths', function (Request $request) {
+    $token = env('MEDIA_NORMALIZE_HTTP_TOKEN');
+
+    if (!$token || $request->query('token') !== $token) {
+        abort(403, 'Unauthorized');
+    }
+
+    $updated = [
+        'site_settings' => 0,
+        'brands' => 0,
+        'categories' => 0,
+        'products_cover_image' => 0,
+        'products_images' => 0,
+        'products_size_guide_images' => 0,
+        'product_variants_images' => 0,
+    ];
+
+    DB::transaction(function () use (&$updated) {
+        $siteSettings = DB::table('site_settings')->whereIn('key', ['header_logo'])->get();
+        foreach ($siteSettings as $setting) {
+            $normalized = MediaUrl::normalizeStoredPath($setting->value);
+            if ($normalized !== $setting->value && $normalized !== null) {
+                DB::table('site_settings')->where('id', $setting->id)->update(['value' => '/storage/' . ltrim($normalized, '/')]);
+                $updated['site_settings']++;
+            }
+        }
+
+        $brands = DB::table('brands')->select('id', 'logo')->get();
+        foreach ($brands as $brand) {
+            $normalized = MediaUrl::normalizeStoredPath($brand->logo);
+            if ($normalized !== $brand->logo && $normalized !== null) {
+                DB::table('brands')->where('id', $brand->id)->update(['logo' => '/storage/' . ltrim($normalized, '/')]);
+                $updated['brands']++;
+            }
+        }
+
+        $categories = DB::table('categories')->select('id', 'image')->get();
+        foreach ($categories as $category) {
+            $normalized = MediaUrl::normalizeStoredPath($category->image);
+            if ($normalized !== $category->image && $normalized !== null) {
+                DB::table('categories')->where('id', $category->id)->update(['image' => '/storage/' . ltrim($normalized, '/')]);
+                $updated['categories']++;
+            }
+        }
+
+        $products = DB::table('products')->select('id', 'cover_image', 'images', 'size_guide_images')->get();
+        foreach ($products as $product) {
+            $changes = [];
+
+            $normalizedCover = MediaUrl::normalizeStoredPath($product->cover_image);
+            if ($normalizedCover !== null && $normalizedCover !== $product->cover_image) {
+                $changes['cover_image'] = '/storage/' . ltrim($normalizedCover, '/');
+                $updated['products_cover_image']++;
+            }
+
+            $images = json_decode((string) $product->images, true);
+            if (is_array($images)) {
+                $newImages = array_map(function ($image) {
+                    if (is_string($image)) {
+                        $normalized = MediaUrl::normalizeStoredPath($image);
+                        return $normalized ? '/storage/' . ltrim($normalized, '/') : $image;
+                    }
+
+                    if (is_array($image)) {
+                        if (isset($image['image_path'])) {
+                            $normalizedPath = MediaUrl::normalizeStoredPath($image['image_path']);
+                            if ($normalizedPath) {
+                                $image['image_path'] = $normalizedPath;
+                            }
+                        }
+                        if (isset($image['image_url'])) {
+                            $normalizedUrl = MediaUrl::normalizeStoredPath($image['image_url']);
+                            if ($normalizedUrl) {
+                                $image['image_url'] = '/storage/' . ltrim($normalizedUrl, '/');
+                            }
+                        }
+                    }
+
+                    return $image;
+                }, $images);
+
+                if ($newImages !== $images) {
+                    $changes['images'] = json_encode($newImages, JSON_UNESCAPED_UNICODE);
+                    $updated['products_images']++;
+                }
+            }
+
+            $sizeGuideImages = json_decode((string) $product->size_guide_images, true);
+            if (is_array($sizeGuideImages)) {
+                $newSizeGuideImages = array_map(function ($image) {
+                    if (is_string($image)) {
+                        $normalized = MediaUrl::normalizeStoredPath($image);
+                        return $normalized ? '/storage/' . ltrim($normalized, '/') : $image;
+                    }
+
+                    if (is_array($image)) {
+                        if (isset($image['image_path'])) {
+                            $normalizedPath = MediaUrl::normalizeStoredPath($image['image_path']);
+                            if ($normalizedPath) {
+                                $image['image_path'] = $normalizedPath;
+                            }
+                        }
+                        if (isset($image['image_url'])) {
+                            $normalizedUrl = MediaUrl::normalizeStoredPath($image['image_url']);
+                            if ($normalizedUrl) {
+                                $image['image_url'] = '/storage/' . ltrim($normalizedUrl, '/');
+                            }
+                        }
+                    }
+
+                    return $image;
+                }, $sizeGuideImages);
+
+                if ($newSizeGuideImages !== $sizeGuideImages) {
+                    $changes['size_guide_images'] = json_encode($newSizeGuideImages, JSON_UNESCAPED_UNICODE);
+                    $updated['products_size_guide_images']++;
+                }
+            }
+
+            if (!empty($changes)) {
+                DB::table('products')->where('id', $product->id)->update($changes);
+            }
+        }
+
+        $variants = DB::table('product_variants')->select('id', 'images')->get();
+        foreach ($variants as $variant) {
+            $images = json_decode((string) $variant->images, true);
+            if (!is_array($images)) {
+                continue;
+            }
+
+            $newImages = array_map(function ($image) {
+                if (is_string($image)) {
+                    $normalized = MediaUrl::normalizeStoredPath($image);
+                    return $normalized ? '/storage/' . ltrim($normalized, '/') : $image;
+                }
+
+                if (is_array($image) && isset($image['image_url'])) {
+                    $normalized = MediaUrl::normalizeStoredPath($image['image_url']);
+                    if ($normalized) {
+                        $image['image_url'] = '/storage/' . ltrim($normalized, '/');
+                    }
+                }
+
+                return $image;
+            }, $images);
+
+            if ($newImages !== $images) {
+                DB::table('product_variants')->where('id', $variant->id)->update([
+                    'images' => json_encode($newImages, JSON_UNESCAPED_UNICODE),
+                ]);
+                $updated['product_variants_images']++;
+            }
+        }
+    });
+
+    return response()->json([
+        'message' => 'Media paths normalized successfully',
+        'updated' => $updated,
+    ]);
+});
+
+/**
+ * Temporary route to inspect normalized media URLs from DB/API perspective.
+ * Secure it with an environment token: set MEDIA_INSPECT_HTTP_TOKEN in .env (same as the ?token= value).
+ * Example: /maintenance/inspect-media-links?token=SECRET123
+ */
+Route::match(['GET', 'POST'], '/maintenance/inspect-media-links', function (Request $request) {
+    $token = env('MEDIA_INSPECT_HTTP_TOKEN');
+
+    if (!$token || $request->query('token') !== $token) {
+        abort(403, 'Unauthorized');
+    }
+
+    $headerLogo = SiteSetting::where('key', 'header_logo')->value('value');
+
+    $category = Category::query()
+        ->whereNotNull('image')
+        ->where('image', '!=', '')
+        ->first();
+
+    $brand = Brand::query()
+        ->whereNotNull('logo')
+        ->where('logo', '!=', '')
+        ->first();
+
+    $product = Product::query()
+        ->where(function ($query) {
+            $query->whereNotNull('cover_image')
+                ->orWhereNotNull('images');
+        })
+        ->first();
+
+    $order = Order::query()
+        ->with(['items.product'])
+        ->latest()
+        ->first();
+
+    $productImages = [];
+    if ($product && is_array($product->images)) {
+        $productImages = collect($product->images)->map(function ($image) {
+            if (is_string($image)) {
+                return [
+                    'stored' => $image,
+                    'normalized' => MediaUrl::normalizeStoredPath($image),
+                    'public' => MediaUrl::publicUrl($image),
+                ];
+            }
+
+            if (is_array($image)) {
+                $source = $image['image_url'] ?? $image['image_path'] ?? null;
+                return [
+                    'stored' => $source,
+                    'normalized' => MediaUrl::normalizeStoredPath($source),
+                    'public' => MediaUrl::publicUrl($source),
+                ];
+            }
+
+            return null;
+        })->filter()->values()->all();
+    }
+
+    $orderItemImages = [];
+    if ($order) {
+        $orderItemImages = $order->items->map(function ($item) {
+            $source = null;
+
+            if ($item->product) {
+                $source = $item->product->cover_image;
+                if (!$source && is_array($item->product->images) && !empty($item->product->images[0])) {
+                    $first = $item->product->images[0];
+                    $source = is_array($first)
+                        ? ($first['image_url'] ?? $first['image_path'] ?? null)
+                        : $first;
+                }
+            }
+
+            return [
+                'order_item_id' => $item->id,
+                'product_name' => $item->product_name,
+                'stored' => $source,
+                'normalized' => MediaUrl::normalizeStoredPath($source),
+                'public' => MediaUrl::publicUrl($source),
+            ];
+        })->values()->all();
+    }
+
+    return response()->json([
+        'message' => 'Media link inspection generated successfully',
+        'env' => [
+            'frontend_url' => env('FRONTEND_URL'),
+            'backend_public_url' => env('BACKEND_PUBLIC_URL'),
+            'app_url' => config('app.url'),
+        ],
+        'site_logo' => [
+            'stored' => $headerLogo,
+            'normalized' => MediaUrl::normalizeStoredPath($headerLogo),
+            'public' => MediaUrl::publicUrl($headerLogo),
+        ],
+        'category' => $category ? [
+            'id' => $category->id,
+            'name' => $category->name,
+            'stored' => $category->image,
+            'normalized' => MediaUrl::normalizeStoredPath($category->image),
+            'public' => MediaUrl::publicUrl($category->image),
+        ] : null,
+        'brand' => $brand ? [
+            'id' => $brand->id,
+            'name' => $brand->name,
+            'stored' => $brand->logo,
+            'normalized' => MediaUrl::normalizeStoredPath($brand->logo),
+            'public' => MediaUrl::publicUrl($brand->logo),
+        ] : null,
+        'product' => $product ? [
+            'id' => $product->id,
+            'name' => $product->name,
+            'cover_image' => [
+                'stored' => $product->cover_image,
+                'normalized' => MediaUrl::normalizeStoredPath($product->cover_image),
+                'public' => MediaUrl::publicUrl($product->cover_image),
+            ],
+            'images' => $productImages,
+        ] : null,
+        'latest_order' => $order ? [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'items' => $orderItemImages,
+        ] : null,
+    ]);
 });

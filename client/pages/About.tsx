@@ -5,6 +5,7 @@ import SEO from "../components/SEO";
 import { useEffect, useState } from "react";
 import { categoriesAPI, settingsAPI } from "../services/api";
 import { useSiteSettings } from "../context/SiteSettingsContext";
+import { getStorageUrl } from "../config/env";
 
 interface AboutSettings {
   about_hero_title?: string;
@@ -27,16 +28,6 @@ const iconMap: Record<string, any> = {
   heart: Heart,
   zap: Zap,
   shield: Shield,
-};
-
-const getStorageUrl = (path?: string | null) => {
-  if (!path) return "";
-  if (path.startsWith("http")) return path;
-  const storageUrl = import.meta.env.VITE_STORAGE_URL || "http://localhost:8000/storage";
-  // Normalize to avoid duplicated "storage/storage"
-  const cleanPath = path.replace(/^\/+/, ""); // remove leading slashes
-  const withoutStorage = cleanPath.replace(/^storage\//i, ""); // drop leading "storage/"
-  return `${storageUrl}/${withoutStorage}`;
 };
 
 const About = () => {

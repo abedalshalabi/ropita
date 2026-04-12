@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class OrderResource extends JsonResource
 {
@@ -23,14 +24,14 @@ class OrderResource extends JsonResource
         foreach ($imagesArray as $image) {
             $imageData = is_array($image) ? $image : (array) $image;
             if (isset($imageData['is_primary']) && $imageData['is_primary']) {
-                return $imageData['image_url'] ?? $imageData['image_path'] ?? null;
+                return MediaUrl::publicUrl($imageData['image_url'] ?? $imageData['image_path'] ?? null);
             }
         }
 
         // If no primary image found, return first image
         if (!empty($imagesArray)) {
             $firstImage = is_array($imagesArray[0]) ? $imagesArray[0] : (array) $imagesArray[0];
-            return $firstImage['image_url'] ?? $firstImage['image_path'] ?? null;
+            return MediaUrl::publicUrl($firstImage['image_url'] ?? $firstImage['image_path'] ?? null);
         }
 
         return null;

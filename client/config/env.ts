@@ -25,6 +25,24 @@ export const STORAGE_BASE_URL = !import.meta.env.DEV
   ? `${window.location.origin}${BASE_PATH}/ropita/public/storage`.replace(/\/$/, '')
   : `${BASE_URL}/storage`.replace(/\/$/, '');
 
+const extractStorageRelativePath = (path: string): string | null => {
+  const normalized = path.replace(/\\/g, "/");
+
+  if (normalized.includes('/storage/')) {
+    return normalized.split('/storage/')[1] || null;
+  }
+
+  if (normalized.startsWith('/storage/')) {
+    return normalized.slice('/storage/'.length);
+  }
+
+  if (normalized.startsWith('storage/')) {
+    return normalized.slice('storage/'.length);
+  }
+
+  return null;
+};
+
 // Utility to get full storage URL for relative paths
 export const getStorageUrl = (path: string | null | undefined): string => {
   if (!path) return '';
@@ -34,16 +52,18 @@ export const getStorageUrl = (path: string | null | undefined): string => {
 
   // إذا كان المسار يحتوي على كلمة storage، نقوم باستخلاص الجزء الذي يليها ودمجه مع عنوان السيرفر الحالي
   // هذا يحل مشكلة الروابط المخزنة كـ localhost في قاعدة البيانات
-  if (cleanPath.includes('/storage/')) {
-    const relativePath = cleanPath.split('/storage/')[1];
+  const relativePath = extractStorageRelativePath(cleanPath);
+  if (relativePath) {
     return `${STORAGE_BASE_URL}/${relativePath}`;
   }
 
+  if (cleanPath === 'logo.webp' || cleanPath === '/logo.webp') return `${window.location.origin}/logo.webp`;
   if (cleanPath.startsWith('http')) return cleanPath;
   if (cleanPath.startsWith('/storage')) return `${BASE_URL}${cleanPath}`;
   if (cleanPath.startsWith('storage')) return `${BASE_URL}/${cleanPath}`;
+  if (cleanPath.startsWith('/')) return `${window.location.origin}${cleanPath}`;
   
-  return cleanPath;
+  return `${STORAGE_BASE_URL}/${cleanPath}`;
 };
 
 export const FACEBOOK_PIXEL_ID = import.meta.env.VITE_FACEBOOK_PIXEL_ID || '';

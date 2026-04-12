@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\Order;
 use App\Models\SiteSetting;
+use App\Support\MediaUrl;
 use Illuminate\Bus\Queueable;
 use Illuminate\Support\Collection;
 use Illuminate\Mail\Mailable;
@@ -28,7 +29,7 @@ class OrderPlacedMail extends Mailable
         $backendUrl = $this->resolveBackendPublicUrl($frontendUrl);
         $headerLogo = SiteSetting::getValue('header_logo', '/logo.webp');
         $headerPhone = SiteSetting::getValue('header_phone', '');
-        $logoUrl = $this->makeFrontendAssetUrl($headerLogo, $frontendUrl, $backendUrl);
+        $logoUrl = $this->resolveMailLogoUrl($headerLogo, $frontendUrl, $backendUrl);
         $successUrl = $frontendUrl . '/order-success';
 
         return $this
@@ -113,7 +114,7 @@ class OrderPlacedMail extends Mailable
                 'original_price' => (float) ($item->original_price ?? 0),
                 'total' => (float) $item->total,
                 'variant_values' => is_array($item->variant_values) ? $item->variant_values : [],
-                'image_url' => $this->makeStorageAwareUrl($imagePath, $frontendUrl, $backendUrl),
+                'image_url' => MediaUrl::publicUrl($imagePath),
                 'product_url' => $product ? $frontendUrl . '/product/' . $product->id : null,
             ];
         });
@@ -143,7 +144,7 @@ class OrderPlacedMail extends Mailable
     private function makeFrontendAssetUrl(?string $path, string $frontendUrl, string $backendUrl): string
     {
         if (blank($path)) {
-            return $frontendUrl . '/logo.webp';
+            return $this->extractUrlOrigin($frontendUrl) . '/logo.webp';
         }
 
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
@@ -151,10 +152,10 @@ class OrderPlacedMail extends Mailable
         }
 
         if ($path === '/logo.webp' || $path === 'logo.webp') {
-            return $frontendUrl . '/logo.webp';
+            return $this->extractUrlOrigin($frontendUrl) . '/logo.webp';
         }
 
-        return $this->makeStorageAwareUrl($path, $frontendUrl, $backendUrl);
+        return MediaUrl::publicUrl($path) ?? $this->makeStorageAwareUrl($path, $frontendUrl, $backendUrl);
     }
 
     private function makeStorageAwareUrl(?string $path, string $frontendUrl, string $backendUrl): ?string
@@ -164,7 +165,7 @@ class OrderPlacedMail extends Mailable
         }
 
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-            return $path;
+            return MediaUrl::publicUrl($path);
         }
 
         if (str_contains($path, '/storage/')) {
@@ -212,5 +213,23 @@ class OrderPlacedMail extends Mailable
         $port = isset($parts['port']) ? ':' . $parts['port'] : '';
 
         return "{$scheme}://{$host}{$port}";
+    }
+
+    private function resolveMailLogoUrl(?string $headerLogo, string $frontendUrl, string $backendUrl): string
+    {
+        $mailLogoUrl = trim((string) env('MAIL_LOGO_URL', ''));
+        if ($mailLogoUrl !== '') {
+            return $mailLogoUrl;
+        }
+
+        // Email clients are stricter than browsers. Prefer a stable public logo
+        // outside /storage unless the user explicitly provides MAIL_LOGO_URL.
+        $origin = $this->extractUrlOrigin($frontendUrl);
+
+        if ($headerLogo === '/logo.webp' || $headerLogo === 'logo.webp' || blank($headerLogo)) {
+            return $origin . '/logo.webp';
+        }
+
+        return $this->makeFrontendAssetUrl($headerLogo, $frontendUrl, $backendUrl);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\MediaUrl;
 
 class OfferResource extends JsonResource
 {
@@ -46,11 +47,11 @@ class OfferResource extends JsonResource
                 if ($product->images && is_array($product->images) && count($product->images) > 0) {
                     $firstImageObj = $product->images[0];
                     if (is_string($firstImageObj)) {
-                        $firstImage = $firstImageObj;
+                        $firstImage = MediaUrl::publicUrl($firstImageObj);
                     } elseif (is_array($firstImageObj) && isset($firstImageObj['image_url'])) {
-                        $firstImage = $firstImageObj['image_url'];
+                        $firstImage = MediaUrl::publicUrl($firstImageObj['image_url']);
                     } elseif (is_array($firstImageObj) && isset($firstImageObj['image_path'])) {
-                        $firstImage = asset('storage/' . $firstImageObj['image_path']);
+                        $firstImage = MediaUrl::publicUrl($firstImageObj['image_path']);
                     }
                 }
                 
@@ -83,11 +84,11 @@ class OfferResource extends JsonResource
                         if ($product->images && is_array($product->images) && count($product->images) > 0) {
                             $firstImageObj = $product->images[0];
                             if (is_string($firstImageObj)) {
-                                $firstImage = $firstImageObj;
+                                $firstImage = MediaUrl::publicUrl($firstImageObj);
                             } elseif (is_array($firstImageObj) && isset($firstImageObj['image_url'])) {
-                                $firstImage = $firstImageObj['image_url'];
+                                $firstImage = MediaUrl::publicUrl($firstImageObj['image_url']);
                             } elseif (is_array($firstImageObj) && isset($firstImageObj['image_path'])) {
-                                $firstImage = asset('storage/' . $firstImageObj['image_path']);
+                                $firstImage = MediaUrl::publicUrl($firstImageObj['image_path']);
                             }
                         }
                         

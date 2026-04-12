@@ -18,6 +18,7 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 use App\Models\Filter;
 use App\Models\ProductImage;
+use App\Support\MediaUrl;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Maatwebsite\Excel\Facades\Excel;
@@ -345,7 +346,7 @@ class ProductController extends Controller
             $coverImage = $request->file('cover_image');
             $filename = time() . '_cover_' . Str::random(10) . '.' . $coverImage->getClientOriginalExtension();
             $path = $coverImage->storeAs('products/covers', $filename, 'public');
-            $validated['cover_image'] = asset('storage/' . $path);
+            $validated['cover_image'] = '/storage/' . $path;
         } elseif ($request->has('cover_image_url')) {
             $validated['cover_image'] = $request->input('cover_image_url');
         }
@@ -460,7 +461,7 @@ class ProductController extends Controller
                 // Create image data array
                 $imageData = [
                     'image_path' => $path,
-                    'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
                     'alt_text' => null,
                     'is_primary' => false, // Will be set based on total images
                     'sort_order' => count($urlImages) + $index, // Continue from URL images
@@ -536,7 +537,7 @@ class ProductController extends Controller
 
                             $variantImages[] = [
                                 'image_path' => $path,
-                                'image_url' => asset('storage/' . $path),
+                                'image_url' => '/storage/' . $path,
                                 'alt_text' => null,
                                 'is_primary' => count($variantImages) === 0,
                                 'sort_order' => count($variantImages),
@@ -669,8 +670,8 @@ class ProductController extends Controller
         // Handle cover image
         if ($request->hasFile('cover_image')) {
             // Delete old cover if exists locally
-            if ($product->cover_image && str_contains($product->cover_image, asset('storage/'))) {
-                $oldPath = str_replace(asset('storage/'), '', $product->cover_image);
+            if ($product->cover_image) {
+                $oldPath = MediaUrl::normalizeStoredPath($product->cover_image);
                 if (Storage::disk('public')->exists($oldPath)) {
                     Storage::disk('public')->delete($oldPath);
                 }
@@ -679,11 +680,11 @@ class ProductController extends Controller
             $coverImage = $request->file('cover_image');
             $filename = time() . '_cover_' . Str::random(10) . '.' . $coverImage->getClientOriginalExtension();
             $path = $coverImage->storeAs('products/covers', $filename, 'public');
-            $validated['cover_image'] = asset('storage/' . $path);
+            $validated['cover_image'] = '/storage/' . $path;
         } elseif ($request->input('cover_image') === 'null' || ($request->has('cover_image') && $request->input('cover_image') === '')) {
             // Delete old cover if exists locally
-            if ($product->cover_image && str_contains($product->cover_image, asset('storage/'))) {
-                $oldPath = str_replace(asset('storage/'), '', $product->cover_image);
+            if ($product->cover_image) {
+                $oldPath = MediaUrl::normalizeStoredPath($product->cover_image);
                 if (Storage::disk('public')->exists($oldPath)) {
                     Storage::disk('public')->delete($oldPath);
                 }
@@ -863,7 +864,7 @@ class ProductController extends Controller
                 // Create image data array
                 $imageData = [
                     'image_path' => $path,
-                    'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
                     'alt_text' => null,
                     'is_primary' => $isPrimary,
                     'sort_order' => $sortOrder,
@@ -939,7 +940,7 @@ class ProductController extends Controller
 
                             $variantImages[] = [
                                 'image_path' => $path,
-                                'image_url' => asset('storage/' . $path),
+                                'image_url' => '/storage/' . $path,
                                 'alt_text' => null,
                                 'is_primary' => count($variantImages) === 0,
                                 'sort_order' => count($variantImages),
@@ -1602,7 +1603,7 @@ class ProductController extends Controller
                 $newFilename = time() . '_variant_' . Str::random(10) . '_' . $vfName;
                 $path = $uFile->storeAs('products/variants', $newFilename, 'public');
                 $variantImages[] = [
-                    'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
                 ];
             }
         }
@@ -1647,7 +1648,7 @@ class ProductController extends Controller
 
                 $allImages[] = [
                     'image_path' => $path,
-                    'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
                     'is_primary' => count($allImages) === 0,
                     'sort_order' => count($allImages)
                 ];
@@ -1690,7 +1691,7 @@ class ProductController extends Controller
                 $path = $uFile->storeAs('products/size-guides', $newFilename, 'public');
                 $allGuideImages[] = [
                     'image_path' => $path,
-                    'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
                 ];
             }
         }
@@ -1762,7 +1763,7 @@ class ProductController extends Controller
 
             $uploadedImages[] = [
                 'image_path' => $path,
-                'image_url' => asset('storage/' . $path),
+                    'image_url' => '/storage/' . $path,
             ];
         }
 
