@@ -37,6 +37,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import adminApi, { adminProductsAPI, adminCategoriesAPI, adminBrandsAPI } from '@/services/adminApi';
+import { getStorageUrl } from '@/config/env';
 import Swal from 'sweetalert2';
 
 interface Product {
@@ -190,6 +191,14 @@ const AdminProductEdit: React.FC = () => {
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
 
+  const normalizePreviewSrc = (path: string | null | undefined): string => {
+    if (!path) return '';
+    if (path.startsWith('data:') || path.startsWith('blob:')) {
+      return path;
+    }
+    return getStorageUrl(path);
+  };
+
   useEffect(() => {
     loadData();
   }, [id]);
@@ -260,7 +269,7 @@ const AdminProductEdit: React.FC = () => {
         })(),
         variants: productResponse.data.variants?.map((v: any) => ({
           ...v,
-          image_previews: v.images?.map((img: any) => img.image_url) || [],
+          image_previews: v.images?.map((img: any) => normalizePreviewSrc(img.image_url)) || [],
           existing_images: v.images || []
         })) || [],
         cover_image: productResponse.data.cover_image || null,
@@ -272,11 +281,7 @@ const AdminProductEdit: React.FC = () => {
 
       // Set cover image preview if exists
       if (productResponse.data.cover_image) {
-        setCoverImagePreview(
-          productResponse.data.cover_image.startsWith('http')
-            ? productResponse.data.cover_image
-            : `${import.meta.env.VITE_STORAGE_URL}/${productResponse.data.cover_image}`
-        );
+        setCoverImagePreview(normalizePreviewSrc(productResponse.data.cover_image));
       }
 
       // Initialize selectedParentId based on current category
@@ -1168,7 +1173,7 @@ const AdminProductEdit: React.FC = () => {
           })(),
           variants: productResponse.data.variants?.map((v: any) => ({
             ...v,
-            image_previews: v.images?.map((img: any) => img.image_url) || [],
+            image_previews: v.images?.map((img: any) => normalizePreviewSrc(img.image_url)) || [],
             existing_images: v.images || []
           })) || [],
           cover_image: productResponse.data.cover_image || null,
@@ -1812,7 +1817,7 @@ const AdminProductEdit: React.FC = () => {
                           return (
                             <div key={`current-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
                               <img
-                                src={imageUrl}
+                                src={normalizePreviewSrc(imageUrl)}
                                 alt={imageAlt}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -1914,7 +1919,7 @@ const AdminProductEdit: React.FC = () => {
                           return (
                             <div key={`size-guide-current-${index}`} className="relative w-24 h-24 border rounded-lg overflow-hidden">
                               <img
-                                src={imageUrl}
+                                src={normalizePreviewSrc(imageUrl)}
                                 alt={`Size guide ${index + 1}`}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -2427,7 +2432,7 @@ const AdminProductEdit: React.FC = () => {
                                   <div className="flex flex-wrap gap-1">
                                     {variant.image_previews?.map((preview, imgIdx) => (
                                       <div key={imgIdx} className="relative w-8 h-8 group border rounded overflow-hidden bg-gray-50">
-                                        <img src={preview} className="w-full h-full object-cover" alt="" />
+                                        <img src={normalizePreviewSrc(preview)} className="w-full h-full object-cover" alt="" />
                                         <button 
                                           type="button"
                                           onClick={() => handleRemoveVariantImage(index, imgIdx)}

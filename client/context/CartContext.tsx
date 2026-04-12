@@ -1,6 +1,6 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect, useCallback, useRef } from "react";
 import { cartAPI } from "../services/api";
-import { STORAGE_BASE_URL } from "../config/env";
+import { getStorageUrl } from "../config/env";
 import { useAuth } from "./AuthContext";
 import { toast } from "../hooks/use-toast";
 
@@ -145,10 +145,15 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           name: item.product.name,
           price: Number(item.price),
           image: (() => {
-            const imgPath = item.product.cover_image || item.product.images?.find((img: any) => img.is_primary)?.image_path || item.product.images?.[0]?.image_path || '';
+            const imgPath =
+              item.product.cover_image ||
+              item.product.images?.find((img: any) => img.is_primary)?.image_url ||
+              item.product.images?.find((img: any) => img.is_primary)?.image_path ||
+              item.product.images?.[0]?.image_url ||
+              item.product.images?.[0]?.image_path ||
+              '';
             if (!imgPath) return '';
-            if (imgPath.startsWith('http')) return imgPath;
-            return `${STORAGE_BASE_URL}/${imgPath.replace(/^\/?(storage\/)?/, '')}`;
+            return getStorageUrl(imgPath);
           })(),
           quantity: item.quantity,
           brand: item.product.brand?.name || 'ماركة غير محددة',

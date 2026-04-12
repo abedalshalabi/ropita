@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { useCart } from "../context/CartContext";
+import { getStorageUrl } from "../config/env";
 import Header from "../components/Header";
 
 const Cart = () => {
@@ -64,9 +65,12 @@ const Cart = () => {
                     <div className="flex gap-4">
                       <Link to={`/product/${item.id}`} className="shrink-0">
                         <img
-                          src={item.image}
+                          src={getStorageUrl(item.image) || "/placeholder.svg"}
                           alt={item.name}
                           className="w-20 h-20 object-cover rounded-lg"
+                          onError={(e) => {
+                            e.currentTarget.src = "/placeholder.svg";
+                          }}
                         />
                       </Link>
 

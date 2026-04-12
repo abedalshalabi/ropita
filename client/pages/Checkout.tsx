@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MapPin, Phone, User, CreditCard, Truck } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { ordersAPI, citiesAPI } from "../services/api";
+import { getStorageUrl } from "../config/env";
 import Header from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 
@@ -389,9 +390,12 @@ const Checkout = () => {
                     <div key={`${item.id}-${item.variant_id || ''}`} className="flex gap-4 p-4 bg-gray-50 rounded-xl relative border border-gray-100">
                       <Link to={`/product/${item.id}`} className="shrink-0">
                         <img
-                          src={item.image}
+                          src={getStorageUrl(item.image) || "/placeholder.svg"}
                           alt={item.name}
                           className="w-20 h-20 object-cover rounded-lg bg-white border border-gray-100 hover:opacity-90 transition-opacity"
+                          onError={(e) => {
+                            e.currentTarget.src = "/placeholder.svg";
+                          }}
                         />
                       </Link>
                       <div className="flex-1">

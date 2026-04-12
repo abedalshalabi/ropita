@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { CheckCircle, Home, Package, Phone } from "lucide-react";
+import { getStorageUrl } from "../config/env";
 import Header from "../components/Header";
 import { settingsAPI } from "../services/api";
 
@@ -101,8 +102,18 @@ const OrderSuccess = () => {
                   <span className="font-semibold text-gray-700 block mb-3">عناصر الطلب:</span>
                   <div className="space-y-2">
                     {items.map((item: any, index: number) => (
-                      <div key={item.id || index} className="flex justify-between text-sm bg-gray-50 p-2 rounded">
-                        <div>
+                      <div key={item.id || index} className="flex items-center justify-between gap-3 text-sm bg-gray-50 p-2 rounded">
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                            <img
+                              src={getStorageUrl(item.product?.image) || "/placeholder.svg"}
+                              alt={item.product_name || item.product?.name || "منتج"}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.src = "/placeholder.svg";
+                              }}
+                            />
+                          </div>
                           <span className="font-medium">{item.product_name || item.product?.name}</span>
                           <span className="text-gray-600 mr-2"> × {item.quantity}</span>
                         </div>
