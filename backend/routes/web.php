@@ -12,6 +12,7 @@ use App\Models\Category;
 use App\Models\Brand;
 use App\Models\Product;
 use App\Models\Order;
+use App\Mail\OrderPlacedMail;
 
 Route::get('/', function () {
     return view('welcome');
@@ -74,6 +75,65 @@ Route::match(['GET', 'POST'], '/maintenance/clear-config', function (Request $re
 });
 
 /**
+ * Temporary route to run cache-related artisan commands when CLI access is unavailable.
+ * Secure it with an environment token: set ARTISAN_CACHE_HTTP_TOKEN in .env (same as the ?token= value).
+ * Example: /maintenance/cache-artisan?token=SECRET123
+ *
+ * Note: route:cache will fail while closure routes still exist in the application.
+ */
+Route::match(['GET', 'POST'], '/maintenance/cache-artisan', function (Request $request) {
+    $token = env('ARTISAN_CACHE_HTTP_TOKEN');
+
+    if (!$token || $request->query('token') !== $token) {
+        abort(403, 'Unauthorized');
+    }
+
+    $commands = [
+        'config:cache',
+        'route:cache',
+        'view:cache',
+        'config:clear',
+    ];
+
+    $results = [];
+    $hasFailures = false;
+
+    foreach ($commands as $command) {
+        try {
+            $exitCode = Artisan::call($command);
+            $output = trim(Artisan::output());
+
+            $results[] = [
+                'command' => $command,
+                'ok' => $exitCode === 0,
+                'exit_code' => $exitCode,
+                'output' => $output,
+            ];
+
+            if ($exitCode !== 0) {
+                $hasFailures = true;
+            }
+        } catch (\Throwable $e) {
+            $hasFailures = true;
+
+            $results[] = [
+                'command' => $command,
+                'ok' => false,
+                'exit_code' => 1,
+                'output' => $e->getMessage(),
+            ];
+        }
+    }
+
+    return response()->json([
+        'message' => $hasFailures
+            ? 'One or more artisan cache commands failed'
+            : 'Artisan cache commands executed successfully',
+        'results' => $results,
+    ], $hasFailures ? 500 : 200);
+});
+
+/**
  * Temporary route to send a simple test email when CLI access is unavailable.
  * Secure it with an environment token: set MAIL_TEST_HTTP_TOKEN in .env (same as the ?token= value).
  * Example: /maintenance/test-mail?token=SECRET123&to=name@example.com
@@ -119,6 +179,88 @@ Route::match(['GET', 'POST'], '/maintenance/test-mail', function (Request $reque
         return response()->json([
             'message' => 'Failed to send test email',
             'to' => $to,
+            'error' => $e->getMessage(),
+            'mail' => [
+                'default' => config('mail.default'),
+                'host' => config('mail.mailers.smtp.host'),
+                'port' => config('mail.mailers.smtp.port'),
+                'scheme' => config('mail.mailers.smtp.scheme'),
+                'username' => config('mail.mailers.smtp.username'),
+                'from' => config('mail.from.address'),
+            ],
+        ], 500);
+    }
+});
+
+/**
+ * Temporary route to send the real order mailable for diagnostics.
+ * Secure it with an environment token: set ORDER_MAIL_TEST_HTTP_TOKEN in .env.
+ * Example: /maintenance/test-order-mail?token=SECRET123&order_id=27&to=name@example.com&type=customer
+ */
+Route::match(['GET', 'POST'], '/maintenance/test-order-mail', function (Request $request) {
+    $token = env('ORDER_MAIL_TEST_HTTP_TOKEN');
+
+    if (!$token || $request->query('token') !== $token) {
+        abort(403, 'Unauthorized');
+    }
+
+    $orderId = (int) $request->query('order_id');
+    $to = $request->query('to');
+    $type = $request->query('type', 'customer');
+
+    if (!$orderId) {
+        return response()->json([
+            'message' => 'order_id is required',
+        ], 422);
+    }
+
+    if (!$to || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        return response()->json([
+            'message' => 'A valid recipient email is required',
+        ], 422);
+    }
+
+    if (!in_array($type, ['customer', 'admin'], true)) {
+        return response()->json([
+            'message' => 'type must be customer or admin',
+        ], 422);
+    }
+
+    $order = Order::with(['items.product.images', 'items.productVariant'])->find($orderId);
+
+    if (!$order) {
+        return response()->json([
+            'message' => 'Order not found',
+        ], 404);
+    }
+
+    try {
+        Mail::to($to)->send(new OrderPlacedMail($order, $type));
+
+        return response()->json([
+            'message' => 'Order mailable sent successfully',
+            'to' => $to,
+            'type' => $type,
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'customer_email' => $order->customer_email,
+            'mail' => [
+                'default' => config('mail.default'),
+                'host' => config('mail.mailers.smtp.host'),
+                'port' => config('mail.mailers.smtp.port'),
+                'scheme' => config('mail.mailers.smtp.scheme'),
+                'username' => config('mail.mailers.smtp.username'),
+                'from' => config('mail.from.address'),
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'message' => 'Failed to send order mailable',
+            'to' => $to,
+            'type' => $type,
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'customer_email' => $order->customer_email,
             'error' => $e->getMessage(),
             'mail' => [
                 'default' => config('mail.default'),
