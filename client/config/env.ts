@@ -60,7 +60,7 @@ const isLocalHostLike = (host: string): boolean =>
 const getRuntimeBasePath = (): string => {
   const segments = window.location.pathname.split('/').filter(Boolean);
 
-  if (segments.length >= 2 && KNOWN_APP_ROUTES.has(segments[1])) {
+  if (segments.length > 0 && !KNOWN_APP_ROUTES.has(segments[0])) {
     return `/${segments[0]}`;
   }
 

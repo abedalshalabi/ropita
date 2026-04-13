@@ -380,9 +380,7 @@ class OrderController extends Controller
 
             $order->load(['items.product.images', 'items.productVariant']);
 
-            // Send WhatsApp notification
-            $this->sendWhatsAppNotification($order);
-            $this->sendOrderEmails($order);
+            $this->dispatchOrderNotificationsAfterResponse($order->id);
 
             return response()->json([
                 'message' => 'Order created successfully',
@@ -405,6 +403,23 @@ class OrderController extends Controller
                 'line' => $e->getLine()
             ], 500);
         }
+    }
+
+    /**
+     * Run slow notifications after the HTTP response is sent.
+     */
+    private function dispatchOrderNotificationsAfterResponse(int $orderId): void
+    {
+        app()->terminating(function () use ($orderId) {
+            $order = Order::with(['items.product.images', 'items.productVariant'])->find($orderId);
+
+            if (!$order) {
+                return;
+            }
+
+            $this->sendWhatsAppNotification($order);
+            $this->sendOrderEmails($order);
+        });
     }
 
     /**
@@ -789,7 +804,9 @@ class OrderController extends Controller
 
             $url = "https://graph.facebook.com/v18.0/{$phoneNumberId}/messages";
             
-            $response = Http::withHeaders([
+            $response = Http::connectTimeout(2)
+                ->timeout(5)
+                ->withHeaders([
                 'Authorization' => 'Bearer ' . $accessToken,
                 'Content-Type' => 'application/json',
             ])->post($url, [
@@ -882,7 +899,7 @@ class OrderController extends Controller
                 'phone' => $phoneNumber
             ]);
             
-            $response = Http::timeout(10)->get($callMeBotUrl);
+            $response = Http::connectTimeout(2)->timeout(5)->get($callMeBotUrl);
             
             if ($response->successful()) {
                 $responseBody = $response->body();
