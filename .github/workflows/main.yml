@@ -37,6 +37,8 @@ jobs:
           node-version: 18
 
       - name: 🧱 Build React frontend
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: |
           npm install
           npm run build
