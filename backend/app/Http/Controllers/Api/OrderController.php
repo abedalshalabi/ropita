@@ -19,9 +19,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Log\Logger;
 
 class OrderController extends Controller
 {
+    private ?Logger $orderEmailLogger = null;
+
     /**
      * Store a newly created resource in storage.
      */
@@ -378,7 +381,18 @@ class OrderController extends Controller
 
             DB::commit();
 
+            $this->logOrderEmail('Order committed successfully', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_email' => $order->customer_email,
+            ]);
+
             $order->load(['items.product.images', 'items.productVariant']);
+
+            $this->logOrderEmail('Order relations loaded before email send', [
+                'order_id' => $order->id,
+                'items_count' => $order->items->count(),
+            ]);
 
             $this->sendOrderEmails($order);
             $this->dispatchWhatsAppNotificationAfterResponse($order->id);
@@ -388,7 +402,7 @@ class OrderController extends Controller
                 'data' => new OrderResource($order)
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             
             Log::error('Order creation failed', [
@@ -396,6 +410,12 @@ class OrderController extends Controller
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $request->all()
             ]);
+
+            $this->logOrderEmail('Order creation failed before email stage', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'error');
             
             return response()->json([
                 'message' => 'Failed to create order',
@@ -758,9 +778,20 @@ class OrderController extends Controller
      */
     private function sendOrderEmails(Order $order): void
     {
+        $this->logOrderEmail('sendOrderEmails invoked', [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'customer_email' => $order->customer_email,
+        ]);
+
         if (filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
             try {
                 Log::info('Sending customer order email', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                ]);
+                $this->logOrderEmail('Sending customer order email', [
                     'order_id' => $order->id,
                     'order_number' => $order->order_number,
                     'customer_email' => $order->customer_email,
@@ -773,13 +804,26 @@ class OrderController extends Controller
                     'order_number' => $order->order_number,
                     'customer_email' => $order->customer_email,
                 ]);
-            } catch (\Exception $e) {
+                $this->logOrderEmail('Customer order email sent', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                ]);
+            } catch (\Throwable $e) {
                 Log::error('Failed to send customer order email', [
                     'order_id' => $order->id,
                     'order_number' => $order->order_number,
                     'customer_email' => $order->customer_email,
                     'error' => $e->getMessage(),
                 ]);
+                $this->logOrderEmail('Failed to send customer order email', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ], 'error');
             }
         } else {
             Log::warning('Skipped customer order email due to invalid email', [
@@ -787,6 +831,11 @@ class OrderController extends Controller
                 'order_number' => $order->order_number,
                 'customer_email' => $order->customer_email,
             ]);
+            $this->logOrderEmail('Skipped customer order email due to invalid email', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_email' => $order->customer_email,
+            ], 'warning');
         }
 
         try {
@@ -808,10 +857,20 @@ class OrderController extends Controller
                     'order_number' => $order->order_number,
                     'admin_recipients' => $adminRecipients,
                 ]);
+                $this->logOrderEmail('Sending admin order emails', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'admin_recipients' => $adminRecipients,
+                ]);
 
                 Mail::to($adminRecipients)->send(new OrderPlacedMail($order, 'admin'));
 
                 Log::info('Admin order emails sent', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'admin_recipients' => $adminRecipients,
+                ]);
+                $this->logOrderEmail('Admin order emails sent', [
                     'order_id' => $order->id,
                     'order_number' => $order->order_number,
                     'admin_recipients' => $adminRecipients,
@@ -821,13 +880,42 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'order_number' => $order->order_number,
                 ]);
+                $this->logOrderEmail('No admin order email recipients configured', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]);
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Failed to send admin order emails', [
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
                 'error' => $e->getMessage(),
             ]);
+            $this->logOrderEmail('Failed to send admin order emails', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'error');
+        }
+    }
+
+    private function logOrderEmail(string $message, array $context = [], string $level = 'info'): void
+    {
+        try {
+            if (!$this->orderEmailLogger) {
+                $this->orderEmailLogger = Log::build([
+                    'driver' => 'single',
+                    'path' => storage_path('logs/order-email.log'),
+                    'level' => 'debug',
+                    'replace_placeholders' => true,
+                ]);
+            }
+
+            $this->orderEmailLogger->{$level}($message, $context);
+        } catch (\Throwable) {
+            // Avoid breaking checkout if the diagnostic logger itself cannot write.
         }
     }
 
