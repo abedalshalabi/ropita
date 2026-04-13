@@ -134,6 +134,50 @@ Route::match(['GET', 'POST'], '/maintenance/cache-artisan', function (Request $r
 });
 
 /**
+ * Temporary route to verify writing to the dedicated order email log file.
+ * Example: /maintenance/test-order-email-log
+ */
+Route::match(['GET', 'POST'], '/maintenance/test-order-email-log', function (Request $request) {
+    $logDirectory = storage_path('logs');
+    $logPath = storage_path('logs/order-email.log');
+
+    try {
+        Log::build([
+            'driver' => 'single',
+            'path' => $logPath,
+            'level' => 'debug',
+            'replace_placeholders' => true,
+        ])->info('Order email log write test', [
+            'timestamp' => now()->toDateTimeString(),
+            'route' => $request->path(),
+            'ip' => $request->ip(),
+        ]);
+
+        clearstatcache(true, $logPath);
+
+        return response()->json([
+            'message' => 'Order email log write test completed successfully',
+            'log_directory' => $logDirectory,
+            'log_directory_exists' => is_dir($logDirectory),
+            'log_directory_writable' => is_writable($logDirectory),
+            'log_file' => $logPath,
+            'log_file_exists' => file_exists($logPath),
+            'log_file_writable' => file_exists($logPath) ? is_writable($logPath) : null,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'message' => 'Failed to write to order email log',
+            'log_directory' => $logDirectory,
+            'log_directory_exists' => is_dir($logDirectory),
+            'log_directory_writable' => is_writable($logDirectory),
+            'log_file' => $logPath,
+            'log_file_exists' => file_exists($logPath),
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+});
+
+/**
  * Temporary route to send a simple test email when CLI access is unavailable.
  * Secure it with an environment token: set MAIL_TEST_HTTP_TOKEN in .env (same as the ?token= value).
  * Example: /maintenance/test-mail?token=SECRET123&to=name@example.com
