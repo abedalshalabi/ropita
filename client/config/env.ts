@@ -11,6 +11,39 @@ const normalizePath = (value: string | undefined): string => {
   return ensureLeadingSlash(trimmed);
 };
 
+const KNOWN_APP_ROUTES = new Set([
+  'admin',
+  'products',
+  'product',
+  'cart',
+  'checkout',
+  'order-success',
+  'wishlist',
+  'offers',
+  'categories',
+  'brands',
+  'login',
+  'forgot-password',
+  'reset-password',
+  'register',
+  'dashboard',
+  'about',
+  'contact',
+  'shipping',
+  'returns',
+  'warranty',
+  'home-appliances',
+  'personal-care',
+  'kitchen',
+  'cooling',
+  'small-appliances',
+  'washing',
+  'cleaning',
+  'electronics',
+  'lighting',
+  'tools',
+]);
+
 const resolveAbsoluteUrl = (value: string | undefined, origin: string): string => {
   if (!value) return '';
   const trimmed = trimTrailingSlash(value.trim());
@@ -21,6 +54,19 @@ const resolveAbsoluteUrl = (value: string | undefined, origin: string): string =
   return `${origin}${ensureLeadingSlash(trimmed)}`;
 };
 
+const isLocalHostLike = (host: string): boolean =>
+  host === 'localhost' || host === '127.0.0.1';
+
+const getRuntimeBasePath = (): string => {
+  const segments = window.location.pathname.split('/').filter(Boolean);
+
+  if (segments.length >= 2 && KNOWN_APP_ROUTES.has(segments[1])) {
+    return `/${segments[0]}`;
+  }
+
+  return '';
+};
+
 const getConfiguredFrontendBasePath = () => {
   const explicitBasePath = normalizePath(import.meta.env.VITE_FRONTEND_BASE_PATH);
   if (explicitBasePath) {
@@ -29,10 +75,20 @@ const getConfiguredFrontendBasePath = () => {
 
   const frontendUrl = resolveAbsoluteUrl(import.meta.env.VITE_FRONTEND_URL, window.location.origin);
   if (!frontendUrl) {
-    return '';
+    return getRuntimeBasePath();
   }
 
-  const pathname = normalizePath(new URL(frontendUrl).pathname);
+  const parsedUrl = new URL(frontendUrl);
+
+  if (
+    !import.meta.env.DEV &&
+    isLocalHostLike(parsedUrl.hostname) &&
+    !isLocalHostLike(window.location.hostname)
+  ) {
+    return getRuntimeBasePath();
+  }
+
+  const pathname = normalizePath(parsedUrl.pathname);
   return pathname;
 };
 

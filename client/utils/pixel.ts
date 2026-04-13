@@ -10,7 +10,9 @@ declare global {
 
 export const initPixel = () => {
     if (!FACEBOOK_PIXEL_ID) {
-        console.warn('Facebook Pixel ID not found in environment variables');
+        if (import.meta.env.DEV) {
+            console.warn('Facebook Pixel ID not found in environment variables');
+        }
         return;
     }
 
