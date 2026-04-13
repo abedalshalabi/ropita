@@ -380,7 +380,8 @@ class OrderController extends Controller
 
             $order->load(['items.product.images', 'items.productVariant']);
 
-            $this->dispatchOrderNotificationsAfterResponse($order->id);
+            $this->sendOrderEmails($order);
+            $this->dispatchWhatsAppNotificationAfterResponse($order->id);
 
             return response()->json([
                 'message' => 'Order created successfully',
@@ -408,7 +409,7 @@ class OrderController extends Controller
     /**
      * Run slow notifications after the HTTP response is sent.
      */
-    private function dispatchOrderNotificationsAfterResponse(int $orderId): void
+    private function dispatchWhatsAppNotificationAfterResponse(int $orderId): void
     {
         app()->terminating(function () use ($orderId) {
             $order = Order::with(['items.product.images', 'items.productVariant'])->find($orderId);
@@ -418,7 +419,6 @@ class OrderController extends Controller
             }
 
             $this->sendWhatsAppNotification($order);
-            $this->sendOrderEmails($order);
         });
     }
 
@@ -758,11 +758,38 @@ class OrderController extends Controller
      */
     private function sendOrderEmails(Order $order): void
     {
-        try {
-            if (filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
-                Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
-            }
+        if (filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
+            try {
+                Log::info('Sending customer order email', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                ]);
 
+                Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
+
+                Log::info('Customer order email sent', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send customer order email', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_email' => $order->customer_email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        } else {
+            Log::warning('Skipped customer order email due to invalid email', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_email' => $order->customer_email,
+            ]);
+        }
+
+        try {
             $adminRecipientsRaw = SiteSetting::getValue('order_notification_admin_emails', []);
             if (!is_array($adminRecipientsRaw)) {
                 $adminRecipientsRaw = [];
@@ -776,10 +803,27 @@ class OrderController extends Controller
                 ->all();
 
             if (!empty($adminRecipients)) {
+                Log::info('Sending admin order emails', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'admin_recipients' => $adminRecipients,
+                ]);
+
                 Mail::to($adminRecipients)->send(new OrderPlacedMail($order, 'admin'));
+
+                Log::info('Admin order emails sent', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'admin_recipients' => $adminRecipients,
+                ]);
+            } else {
+                Log::info('No admin order email recipients configured', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]);
             }
         } catch (\Exception $e) {
-            Log::error('Failed to send order emails', [
+            Log::error('Failed to send admin order emails', [
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
                 'error' => $e->getMessage(),
