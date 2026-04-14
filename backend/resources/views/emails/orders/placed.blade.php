@@ -4,15 +4,65 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تفاصيل الطلب</title>
+    <style>
+        @media only screen and (max-width: 640px) {
+            .email-shell { padding: 14px 10px !important; }
+            .email-card { border-radius: 16px !important; }
+            .email-content, .hero-block { padding: 18px 14px !important; }
+            .hero-block h1 { font-size: 26px !important; line-height: 1.35 !important; }
+            .hero-block p,
+            .email-content > div:first-child > div:first-child,
+            .email-content > div:nth-child(3) > div:first-child {
+                font-size: 16px !important;
+            }
+            .email-content > div:first-child > div > div span:last-child,
+            .email-content > div:nth-child(4) > div span:last-child {
+                display: block !important;
+                float: none !important;
+                margin-top: 6px !important;
+                text-align: right !important;
+                max-width: 100% !important;
+            }
+            .item-table, .item-table tbody, .item-table tr, .item-table td,
+            .info-table, .info-table tbody, .info-table tr, .info-table td {
+                display: block !important;
+                width: 100% !important;
+            }
+            .item-image-cell {
+                width: 100% !important;
+                padding-right: 0 !important;
+                padding-bottom: 12px !important;
+            }
+            .item-image {
+                width: 100% !important;
+                max-width: 220px !important;
+                height: auto !important;
+                margin: 0 auto !important;
+            }
+            .info-table td { padding: 0 0 12px 0 !important; }
+            .info-table td:last-child { padding-bottom: 0 !important; }
+            .action-link {
+                display: block !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+                margin: 0 0 10px 0 !important;
+                text-align: center !important;
+            }
+            .action-link:last-child { margin-bottom: 0 !important; }
+        }
+    </style>
 </head>
 <body dir="rtl" style="margin:0;padding:0;background:#f8f5f0;font-family:Arial,Helvetica,sans-serif;color:#1f2937;direction:rtl;text-align:right;">
-    <div dir="rtl" style="max-width:760px;margin:0 auto;padding:24px 14px;direction:rtl;text-align:right;">
+        <div dir="rtl" class="email-shell" style="max-width:760px;margin:0 auto;padding:24px 14px;direction:rtl;text-align:right;">
         <div style="text-align:center;margin-bottom:18px;direction:rtl;">
-            <img src="{{ $logoUrl }}" alt="{{ $siteName }}" style="max-height:56px;max-width:180px;width:auto;">
+            @php
+                $resolvedLogoSrc = (!empty($logoPath) && isset($message)) ? $message->embed($logoPath) : $logoUrl;
+            @endphp
+            <img src="{{ $resolvedLogoSrc }}" alt="{{ $siteName }}" style="max-height:56px;max-width:180px;width:auto;">
         </div>
 
-        <div dir="rtl" style="background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #eadfce;box-shadow:0 8px 30px rgba(100,85,43,.08);">
-            <div style="background:linear-gradient(135deg,#ac9d7f 0%,#c4b59b 100%);padding:28px 24px;color:#ffffff;text-align:center;direction:rtl;">
+        <div dir="rtl" class="email-card" style="background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #eadfce;box-shadow:0 8px 30px rgba(100,85,43,.08);">
+            <div class="hero-block" style="background:linear-gradient(135deg,#ac9d7f 0%,#c4b59b 100%);padding:28px 24px;color:#ffffff;text-align:center;direction:rtl;">
                 <div style="font-size:72px;line-height:1;margin-bottom:12px;">✓</div>
                 <h1 style="margin:0 0 8px;font-size:34px;font-weight:700;">{{ $recipientType === 'admin' ? 'تم استلام طلب جديد' : 'تم تأكيد طلبك بنجاح!' }}</h1>
                 <p style="margin:0;font-size:18px;opacity:.95;">
@@ -20,7 +70,7 @@
                 </p>
             </div>
 
-            <div dir="rtl" style="padding:24px;direction:rtl;text-align:right;">
+            <div dir="rtl" class="email-content" style="padding:24px;direction:rtl;text-align:right;">
                 <div style="background:#fff;border:1px solid #eadfce;border-radius:18px;padding:22px;margin-bottom:22px;">
                     <div style="font-size:23px;font-weight:700;margin-bottom:16px;text-align:center;">تفاصيل الطلب</div>
 
@@ -82,16 +132,21 @@
 
                     @foreach($orderItems as $item)
                         <div style="border:1px solid #eadfce;border-radius:18px;background:#ffffff;padding:14px;margin-bottom:14px;direction:rtl;">
-                            <table role="presentation" style="width:100%;border-collapse:collapse;">
+                            <table role="presentation" class="item-table" style="width:100%;border-collapse:collapse;">
                                 <tr>
-                                    <td style="width:108px;vertical-align:top;padding-left:0;padding-right:12px;">
-                                        @if($item['image_url'])
+                                    <td class="item-image-cell" style="width:108px;vertical-align:top;padding-left:0;padding-right:12px;">
+                                        @if(!empty($item['image_url']) || !empty($item['image_path']))
+                                            @php
+                                                $resolvedItemImageSrc = (!empty($item['image_path']) && isset($message))
+                                                    ? $message->embed($item['image_path'])
+                                                    : $item['image_url'];
+                                            @endphp
                                             @if($item['product_url'])
                                                 <a href="{{ $item['product_url'] }}" target="_blank" style="text-decoration:none;">
-                                                    <img src="{{ $item['image_url'] }}" alt="{{ $item['name'] }}" style="width:96px;height:96px;object-fit:cover;border-radius:14px;border:1px solid #eadfce;display:block;">
+                                                    <img src="{{ $resolvedItemImageSrc }}" alt="{{ $item['name'] }}" class="item-image" style="width:96px;height:96px;object-fit:cover;border-radius:14px;border:1px solid #eadfce;display:block;">
                                                 </a>
                                             @else
-                                                <img src="{{ $item['image_url'] }}" alt="{{ $item['name'] }}" style="width:96px;height:96px;object-fit:cover;border-radius:14px;border:1px solid #eadfce;display:block;">
+                                                <img src="{{ $resolvedItemImageSrc }}" alt="{{ $item['name'] }}" class="item-image" style="width:96px;height:96px;object-fit:cover;border-radius:14px;border:1px solid #eadfce;display:block;">
                                             @endif
                                         @endif
                                     </td>
@@ -149,7 +204,7 @@
                 </div>
 
                 <div style="margin-bottom:22px;">
-                    <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:12px 0;">
+                    <table role="presentation" class="info-table" style="width:100%;border-collapse:separate;border-spacing:12px 0;">
                         <tr>
                             <td style="width:50%;vertical-align:top;">
                                 <div style="background:#ffffff;border:1px solid #eadfce;border-radius:18px;padding:20px;text-align:center;height:100%;">
@@ -176,10 +231,10 @@
                 </div>
 
                 <div style="text-align:center;margin-bottom:22px;">
-                    <a href="{{ $frontendUrl }}/" target="_blank" style="display:inline-block;background:#ac9d7f;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:700;margin-left:8px;">
+                    <a href="{{ $frontendUrl }}/" target="_blank" class="action-link" style="display:inline-block;background:#ac9d7f;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:700;margin-left:8px;">
                         العودة للرئيسية
                     </a>
-                    <a href="{{ $frontendUrl }}/products" target="_blank" style="display:inline-block;border:1px solid #ac9d7f;color:#7c6d47;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:700;">
+                    <a href="{{ $frontendUrl }}/products" target="_blank" class="action-link" style="display:inline-block;border:1px solid #ac9d7f;color:#7c6d47;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:700;">
                         متابعة التسوق
                     </a>
                 </div>

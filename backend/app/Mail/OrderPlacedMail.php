@@ -10,6 +10,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Support\Collection;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\File;
 
 class OrderPlacedMail extends Mailable
 {
@@ -31,6 +32,7 @@ class OrderPlacedMail extends Mailable
         $headerLogo = SiteSetting::getValue('header_logo', '/logo.webp');
         $headerPhone = SiteSetting::getValue('header_phone', '');
         $logoUrl = $this->resolveMailLogoUrl($headerLogo, $frontendUrl, $backendUrl);
+        $logoPath = $this->resolveLocalImagePath($headerLogo);
         $successUrl = $frontendUrl . '/order-success';
 
         return $this
@@ -45,6 +47,7 @@ class OrderPlacedMail extends Mailable
                 'frontendUrl' => $frontendUrl,
                 'successUrl' => $successUrl,
                 'logoUrl' => $logoUrl,
+                'logoPath' => $logoPath,
                 'headerPhone' => $headerPhone,
                 'paymentMethodLabel' => $this->getPaymentMethodLabel(),
                 'orderStatusLabel' => $this->getOrderStatusLabel(),
@@ -116,6 +119,7 @@ class OrderPlacedMail extends Mailable
                 'total' => (float) $item->total,
                 'variant_values' => is_array($item->variant_values) ? $item->variant_values : [],
                 'image_url' => MediaUrl::publicUrl($imagePath),
+                'image_path' => $this->resolveLocalImagePath($imagePath),
                 'product_url' => $product ? $frontendUrl . '/product/' . $product->id : null,
             ];
         });
@@ -210,5 +214,48 @@ class OrderPlacedMail extends Mailable
         }
 
         return $this->makeFrontendAssetUrl($headerLogo, $frontendUrl, $backendUrl);
+    }
+
+    private function resolveLocalImagePath(?string $path): ?string
+    {
+        if (blank($path)) {
+            $defaultLogo = public_path('logo.webp');
+            return File::exists($defaultLogo) ? $defaultLogo : null;
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $normalized = MediaUrl::normalizeStoredPath($path);
+            if ($normalized === null || str_starts_with($normalized, 'http://') || str_starts_with($normalized, 'https://')) {
+                return null;
+            }
+            $path = $normalized;
+        }
+
+        if ($path === '/logo.webp' || $path === 'logo.webp') {
+            $logoPath = public_path('logo.webp');
+            return File::exists($logoPath) ? $logoPath : null;
+        }
+
+        $normalized = MediaUrl::normalizeStoredPath($path);
+        if (!$normalized) {
+            return null;
+        }
+
+        $storagePath = storage_path('app/public/' . ltrim($normalized, '/'));
+        if (File::exists($storagePath)) {
+            return $storagePath;
+        }
+
+        $publicStoragePath = public_path('storage/' . ltrim($normalized, '/'));
+        if (File::exists($publicStoragePath)) {
+            return $publicStoragePath;
+        }
+
+        $publicPath = public_path(ltrim($normalized, '/'));
+        if (File::exists($publicPath)) {
+            return $publicPath;
+        }
+
+        return null;
     }
 }
