@@ -38,7 +38,12 @@ jobs:
 
       - name: 🧱 Build React frontend
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_FRONTEND_URL: ${{ secrets.VITE_FRONTEND_URL }}
+          VITE_FRONTEND_BASE_PATH: ${{ secrets.VITE_FRONTEND_BASE_PATH }}
+          VITE_BACKEND_PUBLIC_URL: ${{ secrets.VITE_BACKEND_PUBLIC_URL }}
+          VITE_BACKEND_PUBLIC_PATH: ${{ secrets.VITE_BACKEND_PUBLIC_PATH }}
+          VITE_FACEBOOK_PIXEL_ID: ${{ secrets.VITE_FACEBOOK_PIXEL_ID }}
+          VITE_GOOGLE_ANALYTICS_ID: ${{ secrets.VITE_GOOGLE_ANALYTICS_ID }}
         run: |
           npm install
           npm run build
