@@ -1334,6 +1334,21 @@ class ProductController extends Controller
         $file = $request->file('file');
         $uploadedFiles = $request->file('images') ?? [];
         $tempImportDir = null;
+        $importId = (string) Str::uuid();
+        $currentRowNumber = null;
+        $currentSku = null;
+        $zipFile = $request->file('images_zip');
+
+        Log::info('Bulk import started', [
+            'import_id' => $importId,
+            'file_name' => $file?->getClientOriginalName(),
+            'file_size' => $file?->getSize(),
+            'file_extension' => $file?->getClientOriginalExtension(),
+            'uploaded_images_count' => is_array($uploadedFiles) ? count($uploadedFiles) : 0,
+            'has_images_zip' => $request->hasFile('images_zip'),
+            'images_zip_name' => $zipFile?->getClientOriginalName(),
+            'images_zip_size' => $zipFile?->getSize(),
+        ]);
 
         $fileMap = [];
         foreach ($uploadedFiles as $uFile) {
@@ -1345,18 +1360,44 @@ class ProductController extends Controller
         }
 
         if ($request->hasFile('images_zip')) {
+            Log::info('Bulk import extracting zip', [
+                'import_id' => $importId,
+                'zip_name' => $zipFile?->getClientOriginalName(),
+                'zip_size' => $zipFile?->getSize(),
+            ]);
             ['map' => $zipFileMap, 'temp_dir' => $tempImportDir] = $this->extractBulkImportZip($request->file('images_zip'));
             $fileMap = array_merge($fileMap, $zipFileMap);
+            Log::info('Bulk import zip extracted', [
+                'import_id' => $importId,
+                'extracted_files_count' => count($zipFileMap),
+                'temp_dir' => $tempImportDir,
+            ]);
         }
 
         // Use Excel::toArray to handle both CSV and XLSX
+        Log::info('Bulk import reading spreadsheet', [
+            'import_id' => $importId,
+            'file_name' => $file?->getClientOriginalName(),
+        ]);
         $rows = Excel::toArray(new \stdClass(), $file)[0];
+        Log::info('Bulk import spreadsheet loaded', [
+            'import_id' => $importId,
+            'total_raw_rows' => count($rows),
+        ]);
 
+        Log::info('Bulk import checking spreadsheet content', [
+            'import_id' => $importId,
+            'is_empty' => empty($rows),
+        ]);
         if (empty($rows)) {
             return response()->json(['message' => 'ملف فارغ'], 422);
         }
 
         $headers = array_shift($rows);
+        Log::info('Bulk import headers parsed', [
+            'import_id' => $importId,
+            'headers_count' => count($headers),
+        ]);
 
         $rowCount = 0;
         $createdCount = 0;
@@ -1384,7 +1425,8 @@ class ProductController extends Controller
             $currentProduct = null;
             $lastSku = null;
 
-            foreach ($rows as $row) {
+            foreach ($rows as $rowIndex => $row) {
+                $currentRowNumber = $rowIndex + 3;
                 // Safe mapping of headers to row data
                 $data = [];
                 foreach ($headers as $index => $header) {
@@ -1395,12 +1437,19 @@ class ProductController extends Controller
                 }
 
                 $sku = trim($data['sku'] ?? '');
+                $currentSku = $sku !== '' ? $sku : null;
 
                 // Skip empty rows or guidance rows
                 if (!$sku || str_contains($sku, 'GUIDE'))
                     continue;
 
                 $rowCount++;
+                Log::info('Bulk import processing row', [
+                    'import_id' => $importId,
+                    'row_number' => $currentRowNumber,
+                    'sku' => $sku,
+                    'is_variant_row' => $sku === $lastSku && $currentProduct !== null,
+                ]);
 
                 // If SKU matches last row, it's a variant for the SAME product
                 if ($sku === $lastSku && $currentProduct) {
@@ -1530,6 +1579,16 @@ class ProductController extends Controller
                     $updatedCount++;
                 }
 
+                Log::info('Bulk import product saved', [
+                    'import_id' => $importId,
+                    'row_number' => $currentRowNumber,
+                    'sku' => $sku,
+                    'product_id' => $product->id,
+                    'was_recently_created' => $product->wasRecentlyCreated,
+                    'category_ids' => $categoryIds,
+                    'brand_id' => $brandId,
+                ]);
+
                 if (!empty($categoryIds)) {
                     $product->categories()->sync($categoryIds);
                 }
@@ -1545,6 +1604,13 @@ class ProductController extends Controller
             }
 
             DB::commit();
+            Log::info('Bulk import completed', [
+                'import_id' => $importId,
+                'rows_processed' => $rowCount,
+                'created' => $createdCount,
+                'updated' => $updatedCount,
+                'file_map_count' => count($fileMap),
+            ]);
 
             return response()->json([
                 'message' => 'تم استيراد المنتجات بنجاح',
@@ -1557,13 +1623,28 @@ class ProductController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Bulk import error: ' . $e->getMessage());
+            Log::error('Bulk import failed', [
+                'import_id' => $importId,
+                'row_number' => $currentRowNumber,
+                'sku' => $currentSku,
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'message' => 'فشل الاستيراد: ' . $e->getMessage(),
-                'line' => $e->getLine()
+                'line' => $e->getLine(),
+                'import_id' => $importId,
+                'row_number' => $currentRowNumber,
+                'sku' => $currentSku
             ], 500);
         } finally {
             if ($tempImportDir) {
+                Log::info('Bulk import cleaning temp dir', [
+                    'import_id' => $importId,
+                    'temp_dir' => $tempImportDir,
+                ]);
                 $this->cleanupBulkImportTempDir($tempImportDir);
             }
         }
@@ -1910,25 +1991,33 @@ class ProductController extends Controller
 
         $fileMap = [];
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        $skippedEntries = 0;
 
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $entryName = $zip->getNameIndex($i);
             if (!$entryName || str_ends_with($entryName, '/')) {
+                $skippedEntries++;
                 continue;
             }
 
             $basename = basename($entryName);
             if ($basename === '' || str_starts_with($basename, '.')) {
+                $skippedEntries++;
                 continue;
             }
 
             $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
             if (!in_array($extension, $allowedExtensions, true)) {
+                $skippedEntries++;
                 continue;
             }
 
             $stream = $zip->getStream($entryName);
             if (!$stream) {
+                Log::warning('Bulk import zip entry stream could not be opened', [
+                    'zip_name' => $zipFile->getClientOriginalName(),
+                    'entry_name' => $entryName,
+                ]);
                 continue;
             }
 
@@ -1946,6 +2035,13 @@ class ProductController extends Controller
         }
 
         $zip->close();
+        Log::info('Bulk import zip summary', [
+            'zip_name' => $zipFile->getClientOriginalName(),
+            'zip_entries_total' => $zip->numFiles,
+            'extracted_files_count' => count($fileMap),
+            'skipped_entries_count' => $skippedEntries,
+            'temp_dir' => $tempDir,
+        ]);
 
         return ['map' => $fileMap, 'temp_dir' => $tempDir];
     }
@@ -1964,6 +2060,13 @@ class ProductController extends Controller
 
         $sourcePath = $fileRef['path'] ?? null;
         if (!$sourcePath || !is_file($sourcePath)) {
+            Log::error('Bulk import source file missing during store', [
+                'original_name' => $originalName,
+                'directory' => $directory,
+                'prefix' => $prefix,
+                'source' => $fileRef['source'] ?? null,
+                'source_path' => $sourcePath,
+            ]);
             throw new \RuntimeException("ملف الصورة {$originalName} غير موجود بعد فك الضغط.");
         }
 

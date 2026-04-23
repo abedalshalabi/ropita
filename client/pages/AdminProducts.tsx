@@ -1963,10 +1963,17 @@ const AdminProducts = () => {
                         } catch (err: any) {
                           setImportStage("failed");
                           setImportStatusText(err.response?.data?.message || "حدث خطأ أثناء معالجة ملف الاستيراد.");
+                          const errorData = err.response?.data || {};
+                          const details = [
+                            errorData.message || 'حدث خطأ في معالجة الملف',
+                            errorData.row_number ? `الصف: ${errorData.row_number}` : null,
+                            errorData.sku ? `SKU: ${errorData.sku}` : null,
+                            errorData.import_id ? `رقم التتبع: ${errorData.import_id}` : null,
+                          ].filter(Boolean).join('<br>');
                           Swal.fire({
                             icon: 'error',
                             title: 'خطأ في الاستيراد',
-                            text: err.response?.data?.message || 'حدث خطأ في معالجة الملف'
+                            html: details
                           });
                         } finally {
                           setIsImporting(false);

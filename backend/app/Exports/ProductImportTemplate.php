@@ -5,9 +5,11 @@ namespace App\Exports;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Filter;
+use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class ProductImportTemplate implements WithMultipleSheets
 {
@@ -19,6 +21,7 @@ class ProductImportTemplate implements WithMultipleSheets
             'Brands' => new BrandListSheet(),
             'StockStatuses' => new StockStatusSheet(),
             'Filter Mapping' => new FilterMappingSheet(),
+            'ValidationLists' => new ProductImportValidationSheet(),
         ];
     }
 }
@@ -85,33 +88,12 @@ class ProductImportMainSheet implements
         return [
             \Maatwebsite\Excel\Events\AfterSheet::class => function(\Maatwebsite\Excel\Events\AfterSheet $event) {
                 $sheet = $event->sheet->getDelegate();
-                
-                // 1. Categories Dropdown (Column J)
-                $objValJ = $sheet->getDataValidation('J3:J1000');
-                $objValJ->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                $objValJ->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
-                $objValJ->setAllowBlank(true);
-                $objValJ->setShowDropDown(true);
-                $objValJ->setFormula1("'Categories'!\$A\$2:\$A\$200");
-                $objValJ->setPromptTitle('Pick category');
-                $objValJ->setPrompt('Select one or type multiple names separated by comma.');
 
-                // 2. Brands Dropdown (Column K)
-                $objValK = $sheet->getDataValidation('K3:K1000');
-                $objValK->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                $objValK->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
-                $objValK->setShowDropDown(true);
-                $objValK->setFormula1("'Brands'!\$A\$2:\$A\$200");
-                $objValK->setPromptTitle('Pick brand');
-
-                // 3. Stock Status Dropdown (Column T)
-                $objValT = $sheet->getDataValidation('T3:T1000');
-                $objValT->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                $objValT->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
-                $objValT->setAllowBlank(false);
-                $objValT->setShowDropDown(true);
-                $objValT->setFormula1("'StockStatuses'!\$A\$2:\$A\$4"); 
-                $objValT->setPromptTitle('Pick stock status');
+                // Apply validations cell-by-cell. Range-level validation generation can produce
+                // workbooks that Excel repairs on open with some PhpSpreadsheet versions.
+                $this->applyListValidation($sheet, 'J', 3, 1000, "=ValidationLists!\$A\$2:\$A\$" . (Category::count() + 1), true, 'Pick category', 'Select one or type multiple names separated by comma.');
+                $this->applyListValidation($sheet, 'K', 3, 1000, "=ValidationLists!\$B\$2:\$B\$" . (Brand::count() + 1), true, 'Pick brand');
+                $this->applyListValidation($sheet, 'T', 3, 1000, "=ValidationLists!\$C\$2:\$C\$4", false, 'Pick stock status');
 
                 // 4. Filters Columns (Z onwards)
                 $filters = Filter::orderBy('name')->get();
@@ -121,12 +103,16 @@ class ProductImportMainSheet implements
                     $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startColIndex + $index);
                     
                     if (!empty($filter->options) && is_array($filter->options)) {
-                        $objValidation = $sheet->getDataValidation($colLetter . '3:' . $colLetter . '1000');
-                        $objValidation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                        $objValidation->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
-                        $objValidation->setShowDropDown(true);
-                        $optionsStr = '"' . implode(',', $filter->options) . '"';
-                        $objValidation->setFormula1($optionsStr);
+                        $validationColLetter = Coordinate::stringFromColumnIndex($index + 4);
+                        $optionsCount = count($filter->options) + 1;
+                        $this->applyListValidation(
+                            $sheet,
+                            $colLetter,
+                            3,
+                            1000,
+                            "=ValidationLists!\${$validationColLetter}\$2:\${$validationColLetter}\${$optionsCount}",
+                            true
+                        );
                     }
 
                     $mapColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 2);
@@ -141,13 +127,42 @@ class ProductImportMainSheet implements
 
                 // Boolean dropdowns (Active/Featured/ShowDesc/ShowSpecs)
                 foreach (['L', 'M', 'N', 'O'] as $col) {
-                    $objValidation = $sheet->getDataValidation($col . '3:' . $col . '1000');
-                    $objValidation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
-                    $objValidation->setFormula1('"true,false"');
-                    $objValidation->setShowDropDown(true);
+                    $this->applyListValidation($sheet, $col, 3, 1000, '"true,false"', true);
                 }
             },
         ];
+    }
+
+    private function applyListValidation(
+        Worksheet $sheet,
+        string $column,
+        int $startRow,
+        int $endRow,
+        string $formula,
+        bool $allowBlank = true,
+        ?string $promptTitle = null,
+        ?string $prompt = null
+    ): void {
+        $validation = new DataValidation();
+        $validation->setType(DataValidation::TYPE_LIST);
+        $validation->setErrorStyle(DataValidation::STYLE_INFORMATION);
+        $validation->setAllowBlank($allowBlank);
+        $validation->setShowInputMessage(true);
+        $validation->setShowErrorMessage(true);
+        $validation->setShowDropDown(true);
+        $validation->setFormula1($formula);
+
+        if ($promptTitle) {
+            $validation->setPromptTitle($promptTitle);
+        }
+
+        if ($prompt) {
+            $validation->setPrompt($prompt);
+        }
+
+        for ($row = $startRow; $row <= $endRow; $row++) {
+            $sheet->getCell($column . $row)->setDataValidation(clone $validation);
+        }
     }
 }
 
@@ -283,5 +298,85 @@ class StockStatusSheet implements
             ['out_of_stock'],
             ['stock_based'],
         ]);
+    }
+}
+
+class ProductImportValidationSheet implements
+    \Maatwebsite\Excel\Concerns\FromCollection,
+    \Maatwebsite\Excel\Concerns\WithTitle,
+    \Maatwebsite\Excel\Concerns\WithHeadings,
+    \Maatwebsite\Excel\Concerns\WithEvents
+{
+    public function title(): string
+    {
+        return 'ValidationLists';
+    }
+
+    public function headings(): array
+    {
+        $headers = ['Categories', 'Brands', 'Stock Statuses'];
+
+        foreach (Filter::orderBy('name')->pluck('name') as $filterName) {
+            $headers[] = $filterName;
+        }
+
+        return $headers;
+    }
+
+    public function collection()
+    {
+        $categories = Category::with('parent')->get()->map(function ($cat) {
+            $name = $cat->name;
+            $parent = $cat->parent;
+
+            while ($parent) {
+                $name = $parent->name . ' > ' . $name;
+                $parent = $parent->parent;
+            }
+
+            return $name;
+        })->values();
+
+        $brands = Brand::orderBy('name')->pluck('name')->values();
+        $statuses = collect(['in_stock', 'out_of_stock', 'stock_based']);
+        $filters = Filter::orderBy('name')->get(['name', 'options']);
+
+        $columns = [
+            $categories,
+            $brands,
+            $statuses,
+        ];
+
+        foreach ($filters as $filter) {
+            $options = collect($filter->options ?? [])
+                ->filter(fn ($option) => is_string($option) && trim($option) !== '')
+                ->values();
+
+            $columns[] = $options;
+        }
+
+        $maxRows = collect($columns)->map(fn (Collection $column) => $column->count())->max() ?: 0;
+        $rows = [];
+
+        for ($rowIndex = 0; $rowIndex < $maxRows; $rowIndex++) {
+            $row = [];
+
+            foreach ($columns as $column) {
+                $row[] = $column->get($rowIndex, null);
+            }
+
+            $rows[] = $row;
+        }
+
+        return collect($rows);
+    }
+
+    public function registerEvents(): array
+    {
+        return [
+            \Maatwebsite\Excel\Events\AfterSheet::class => function (\Maatwebsite\Excel\Events\AfterSheet $event) {
+                $event->sheet->getDelegate()->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
+            },
+        ];
     }
 }
