@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosProgressEvent } from 'axios';
 import { API_BASE_URL } from "../config/env";
 
 const adminApi = axios.create({
@@ -237,11 +237,17 @@ export const adminProductsAPI = {
     return response.data;
   },
 
-  async importProducts(formData: FormData) {
+  async importProducts(
+    formData: FormData,
+    options?: {
+      onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
+    }
+  ) {
     const response = await adminApi.post('/v1/admin/products/import', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
-      }
+      },
+      onUploadProgress: options?.onUploadProgress,
     });
     return response.data;
   },

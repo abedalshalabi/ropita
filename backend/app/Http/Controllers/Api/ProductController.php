@@ -20,6 +20,7 @@ use App\Models\Filter;
 use App\Models\ProductImage;
 use App\Support\MediaUrl;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\ProductImportTemplate;
@@ -1327,14 +1328,25 @@ class ProductController extends Controller
         $request->validate([
             'file' => 'required|file|mimes:csv,txt,xlsx,xls',
             'images.*' => 'nullable|file|image|max:10240',
+            'images_zip' => 'nullable|file|mimes:zip|max:3145728',
         ]);
 
         $file = $request->file('file');
         $uploadedFiles = $request->file('images') ?? [];
+        $tempImportDir = null;
 
         $fileMap = [];
         foreach ($uploadedFiles as $uFile) {
-            $fileMap[$uFile->getClientOriginalName()] = $uFile;
+            $fileMap[$uFile->getClientOriginalName()] = [
+                'source' => 'upload',
+                'file' => $uFile,
+                'original_name' => $uFile->getClientOriginalName(),
+            ];
+        }
+
+        if ($request->hasFile('images_zip')) {
+            ['map' => $zipFileMap, 'temp_dir' => $tempImportDir] = $this->extractBulkImportZip($request->file('images_zip'));
+            $fileMap = array_merge($fileMap, $zipFileMap);
         }
 
         // Use Excel::toArray to handle both CSV and XLSX
@@ -1550,6 +1562,10 @@ class ProductController extends Controller
                 'message' => 'فشل الاستيراد: ' . $e->getMessage(),
                 'line' => $e->getLine()
             ], 500);
+        } finally {
+            if ($tempImportDir) {
+                $this->cleanupBulkImportTempDir($tempImportDir);
+            }
         }
     }
 
@@ -1599,9 +1615,7 @@ class ProductController extends Controller
         foreach ($vFilenames as $vfName) {
             $vfName = trim($vfName);
             if (isset($fileMap[$vfName])) {
-                $uFile = $fileMap[$vfName];
-                $newFilename = time() . '_variant_' . Str::random(10) . '_' . $vfName;
-                $path = $uFile->storeAs('products/variants', $newFilename, 'public');
+                $path = $this->storeBulkImportFile($fileMap[$vfName], 'products/variants', 'variant');
                 $variantImages[] = [
                     'image_url' => '/storage/' . $path,
                 ];
@@ -1642,9 +1656,7 @@ class ProductController extends Controller
         foreach ($filenames as $index => $fname) {
             $fname = trim($fname);
             if (isset($fileMap[$fname])) {
-                $uFile = $fileMap[$fname];
-                $newFilename = time() . '_' . Str::random(10) . '_' . $fname;
-                $path = $uFile->storeAs('products', $newFilename, 'public');
+                $path = $this->storeBulkImportFile($fileMap[$fname], 'products', 'bulk');
 
                 $allImages[] = [
                     'image_path' => $path,
@@ -1686,9 +1698,7 @@ class ProductController extends Controller
         foreach ($filenames as $fname) {
             $fname = trim($fname);
             if (isset($fileMap[$fname])) {
-                $uFile = $fileMap[$fname];
-                $newFilename = time() . '_bulk_sg_' . Str::random(10) . '_' . $fname;
-                $path = $uFile->storeAs('products/size-guides', $newFilename, 'public');
+                $path = $this->storeBulkImportFile($fileMap[$fname], 'products/size-guides', 'bulk_sg');
                 $allGuideImages[] = [
                     'image_path' => $path,
                     'image_url' => '/storage/' . $path,
@@ -1883,6 +1893,93 @@ class ProductController extends Controller
             } elseif ($product->stock_status === 'in_stock') {
                 $product->in_stock = true;
             }
+        }
+    }
+
+    private function extractBulkImportZip($zipFile): array
+    {
+        $zip = new \ZipArchive();
+        $opened = $zip->open($zipFile->getRealPath());
+
+        if ($opened !== true) {
+            throw new \RuntimeException('تعذر فتح ملف الصور المضغوط.');
+        }
+
+        $tempDir = storage_path('app/tmp/product-import-' . Str::uuid());
+        File::ensureDirectoryExists($tempDir);
+
+        $fileMap = [];
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entryName = $zip->getNameIndex($i);
+            if (!$entryName || str_ends_with($entryName, '/')) {
+                continue;
+            }
+
+            $basename = basename($entryName);
+            if ($basename === '' || str_starts_with($basename, '.')) {
+                continue;
+            }
+
+            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+            if (!in_array($extension, $allowedExtensions, true)) {
+                continue;
+            }
+
+            $stream = $zip->getStream($entryName);
+            if (!$stream) {
+                continue;
+            }
+
+            $tempPath = $tempDir . DIRECTORY_SEPARATOR . Str::random(12) . '_' . $basename;
+            $target = fopen($tempPath, 'wb');
+            stream_copy_to_stream($stream, $target);
+            fclose($stream);
+            fclose($target);
+
+            $fileMap[$basename] = [
+                'source' => 'zip',
+                'path' => $tempPath,
+                'original_name' => $basename,
+            ];
+        }
+
+        $zip->close();
+
+        return ['map' => $fileMap, 'temp_dir' => $tempDir];
+    }
+
+    private function storeBulkImportFile(array $fileRef, string $directory, string $prefix): string
+    {
+        $originalName = $fileRef['original_name'] ?? 'image';
+        $sanitizedName = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($originalName));
+        $filename = time() . '_' . $prefix . '_' . Str::random(10) . '_' . $sanitizedName;
+        $path = trim($directory, '/') . '/' . $filename;
+
+        if (($fileRef['source'] ?? null) === 'upload') {
+            $fileRef['file']->storeAs($directory, $filename, 'public');
+            return $path;
+        }
+
+        $sourcePath = $fileRef['path'] ?? null;
+        if (!$sourcePath || !is_file($sourcePath)) {
+            throw new \RuntimeException("ملف الصورة {$originalName} غير موجود بعد فك الضغط.");
+        }
+
+        $stream = fopen($sourcePath, 'rb');
+        Storage::disk('public')->put($path, $stream);
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+
+        return $path;
+    }
+
+    private function cleanupBulkImportTempDir(string $tempDir): void
+    {
+        if (is_dir($tempDir)) {
+            File::deleteDirectory($tempDir);
         }
     }
 }

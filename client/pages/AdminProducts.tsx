@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { adminProductsAPI, adminCategoriesAPI, adminBrandsAPI } from "../services/adminApi";
 import { getStorageUrl } from "../config/env";
+import { Progress } from "@/components/ui/progress";
 import Swal from "sweetalert2";
 
 interface Product {
@@ -122,6 +123,8 @@ interface FilterState {
   discountMax: number | null;
 }
 
+type ImportStage = "idle" | "preparing" | "uploading" | "processing" | "completed" | "failed";
+
 const AdminProducts = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -139,8 +142,11 @@ const AdminProducts = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importImages, setImportImages] = useState<FileList | null>(null);
+  const [importImagesZip, setImportImagesZip] = useState<File | null>(null);
   const [importResults, setImportResults] = useState<any>(null);
+  const [importStage, setImportStage] = useState<ImportStage>("idle");
+  const [importProgress, setImportProgress] = useState(0);
+  const [importStatusText, setImportStatusText] = useState("");
 
   // Inline Editing State
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -169,6 +175,63 @@ const AdminProducts = () => {
   const [searchInput, setSearchInput] = useState("");
 
   const navigate = useNavigate();
+
+  const resetImportState = () => {
+    setImportResults(null);
+    setImportFile(null);
+    setImportImagesZip(null);
+    setIsImporting(false);
+    setImportStage("idle");
+    setImportProgress(0);
+    setImportStatusText("");
+  };
+
+  const importSteps = [
+    {
+      key: "preparing",
+      label: "تجهيز الملفات",
+      description: "التحقق من ملف المنتجات وربط ملف الصور المضغوط إن وُجد.",
+    },
+    {
+      key: "uploading",
+      label: "رفع الملفات",
+      description: "رفع ملف Excel أو CSV والملفات المرفقة إلى الخادم.",
+    },
+    {
+      key: "processing",
+      label: "المعالجة على الخادم",
+      description: "فك ضغط الصور، قراءة الصفوف، ثم إنشاء المنتجات أو تحديثها.",
+    },
+    {
+      key: "completed",
+      label: "اكتمال الاستيراد",
+      description: "تم إنهاء العملية وإرجاع الملخص النهائي.",
+    },
+  ] as const;
+
+  const getImportStepState = (stepKey: typeof importSteps[number]["key"]) => {
+    const stepOrder: Record<ImportStage, number> = {
+      idle: -1,
+      preparing: 0,
+      uploading: 1,
+      processing: 2,
+      completed: 3,
+      failed: 2,
+    };
+
+    const currentIndex = stepOrder[importStage];
+    const targetIndex = stepOrder[stepKey as ImportStage];
+
+    if (currentIndex > targetIndex) {
+      return "done";
+    }
+
+    if (currentIndex === targetIndex) {
+      return importStage === "failed" ? "done" : "active";
+    }
+
+    return "pending";
+  };
 
   const getProductThumbnail = (product: Product): string => {
     const firstImage = product.images?.[0];
@@ -1716,12 +1779,10 @@ const AdminProducts = () => {
                 <Upload className="w-5 h-5 text-emerald-600" />
                 استيراد المنتجات جماعياً
               </h2>
-              <button 
+              <button
                 onClick={() => {
                   setShowImportModal(false);
-                  setImportResults(null);
-                  setImportFile(null);
-                  setImportImages(null);
+                  resetImportState();
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -1785,9 +1846,8 @@ const AdminProducts = () => {
                         <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">صور المنتجات (اختياري)</label>
                         <input
                           type="file"
-                          multiple
-                          accept="image/*"
-                          onChange={(e) => setImportImages(e.target.files)}
+                          accept=".zip,application/zip"
+                          onChange={(e) => setImportImagesZip(e.target.files?.[0] || null)}
                           className="block w-full text-sm text-gray-500 file:ml-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 border border-gray-200 rounded-lg p-1"
                         />
                         <p className="text-xs text-gray-500 mt-2 text-right">يمكنك اختيار عدة صور معاً. يجب أن تطابق أسماء الصور ما كتبته في عمود "image_filenames".</p>
@@ -1795,23 +1855,114 @@ const AdminProducts = () => {
                     </div>
                   </div>
 
+                  {isImporting && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 space-y-4" dir="rtl">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="font-bold text-emerald-900">حالة الاستيراد</h4>
+                          <p className="text-sm text-emerald-800">{importStatusText}</p>
+                        </div>
+                        <div className="text-2xl font-extrabold text-emerald-700 min-w-[64px] text-left">
+                          {importProgress}%
+                        </div>
+                      </div>
+
+                      <Progress value={importProgress} className="h-3 bg-emerald-100 [&>div]:bg-emerald-600" />
+
+                      <div className="space-y-3">
+                        {importSteps.map((step, index) => {
+                          const state = getImportStepState(step.key);
+
+                          return (
+                            <div
+                              key={step.key}
+                              className={`flex items-start gap-3 rounded-lg border px-3 py-3 ${
+                                state === "done"
+                                  ? "border-emerald-200 bg-white"
+                                  : state === "active"
+                                    ? "border-emerald-400 bg-white shadow-sm"
+                                    : "border-gray-200 bg-gray-50"
+                              }`}
+                            >
+                              <div
+                                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                  state === "done"
+                                    ? "bg-emerald-600 text-white"
+                                    : state === "active"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-gray-200 text-gray-500"
+                                }`}
+                              >
+                                {state === "done" ? <CheckCircle className="w-4 h-4" /> : index + 1}
+                              </div>
+                              <div className="min-w-0">
+                                <div className={`font-semibold ${state === "pending" ? "text-gray-500" : "text-gray-900"}`}>
+                                  {step.label}
+                                </div>
+                                <div className="text-xs text-gray-600 mt-1">{step.description}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <p className="text-xs text-gray-600">
+                        بعد وصول الرفع إلى 100% تبدأ مرحلة المعالجة داخل الخادم، وقد تستغرق وقتًا أطول إذا كان الملف المضغوط كبيرًا أو عدد المنتجات مرتفعًا.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="pt-6 border-t flex justify-end gap-3 flex-row-reverse">
                     <button
                       disabled={!importFile || isImporting}
                       onClick={async () => {
                         try {
                           setIsImporting(true);
+                          setImportResults(null);
+                          setImportStage("preparing");
+                          setImportProgress(5);
+                          setImportStatusText("جاري تجهيز ملفات الاستيراد...");
                           const formData = new FormData();
                           formData.append('file', importFile!);
-                          if (importImages) {
-                            for (let i = 0; i < importImages.length; i++) {
-                              formData.append('images[]', importImages[i]);
-                            }
+                          if (importImagesZip) {
+                            formData.append('images_zip', importImagesZip);
                           }
-                          const res = await adminProductsAPI.importProducts(formData);
+
+                          setImportStage("uploading");
+                          setImportStatusText(
+                            importImagesZip
+                              ? "جاري رفع ملف المنتجات والملف المضغوط للصور..."
+                              : "جاري رفع ملف المنتجات..."
+                          );
+
+                          const res = await adminProductsAPI.importProducts(formData, {
+                            onUploadProgress: (progressEvent) => {
+                              const total = progressEvent.total ?? 0;
+                              if (!total) {
+                                setImportProgress(20);
+                                return;
+                              }
+
+                              const percent = Math.round((progressEvent.loaded * 100) / total);
+                              setImportProgress(Math.max(10, Math.min(percent, 100)));
+
+                              if (percent >= 100) {
+                                setImportStage("processing");
+                                setImportProgress(100);
+                                setImportStatusText(
+                                  "تم رفع الملفات. الخادم يعالج الآن فك الضغط وقراءة الملف وحفظ المنتجات..."
+                                );
+                              }
+                            },
+                          });
+
+                          setImportStage("completed");
+                          setImportStatusText("اكتمل استيراد المنتجات بنجاح.");
                           setImportResults(res.summary);
                           fetchProducts(); // Refresh list
                         } catch (err: any) {
+                          setImportStage("failed");
+                          setImportStatusText(err.response?.data?.message || "حدث خطأ أثناء معالجة ملف الاستيراد.");
                           Swal.fire({
                             icon: 'error',
                             title: 'خطأ في الاستيراد',
@@ -1868,9 +2019,7 @@ const AdminProducts = () => {
                   <button
                     onClick={() => {
                       setShowImportModal(false);
-                      setImportResults(null);
-                      setImportFile(null);
-                      setImportImages(null);
+                      resetImportState();
                     }}
                     className="mt-6 w-full bg-gray-900 text-white py-4 rounded-xl hover:bg-black transition-all font-bold"
                   >
