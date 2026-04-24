@@ -310,6 +310,7 @@ const Products = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const skipInitialReloadRef = useRef(Boolean(initialProductsSnapshot));
   const isRestoringSnapshotRef = useRef(Boolean(initialProductsSnapshot));
+
   const cancelSnapshotRestoreState = useCallback(() => {
     isRestoringSnapshotRef.current = false;
     hasRestoredScrollRef.current = true;
@@ -340,35 +341,6 @@ const Products = () => {
       sessionStorage.setItem(productsAnchorKey, String(productId));
     }
   }, [routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey, productsSnapshotKey, currentPage, products, hasMore]);
-
-  useEffect(() => {
-    return () => {
-      if (typeof window === "undefined") {
-        return;
-      }
-
-      // Fallback persistence: if navigation happened without triggering card onClick,
-      // keep current scroll and nearest visible product as restore anchor.
-      let anchorProductId: number | undefined;
-      const productElements = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-product-id]")
-      );
-
-      for (const element of productElements) {
-        const rect = element.getBoundingClientRect();
-        if (rect.bottom >= 0 && rect.top <= window.innerHeight) {
-          const rawId = element.dataset.productId;
-          const parsedId = rawId ? Number(rawId) : NaN;
-          if (!Number.isNaN(parsedId)) {
-            anchorProductId = parsedId;
-          }
-          break;
-        }
-      }
-
-      saveProductsScrollPosition(anchorProductId);
-    };
-  }, [saveProductsScrollPosition]);
 
   // Map URL paths to category names for SEO-friendly URLs
   const pathToCategoryMap: { [key: string]: string } = {
@@ -1195,7 +1167,13 @@ const Products = () => {
     // cancel restore mode immediately and proceed with normal reload behavior.
     if (isRestoringSnapshotRef.current) {
       const isOriginalRestoreRoute = productsViewCache?.key === routeCacheKey;
-      if (!isOriginalRestoreRoute) {
+      const hasSessionRestoreForRoute =
+        typeof window !== "undefined" &&
+        sessionStorage.getItem(productsRestoreFlagKey) === "1";
+
+      // Keep restore mode when route has a valid restore marker in either memory cache
+      // or session storage. This is important on production where memory cache can reset.
+      if (!isOriginalRestoreRoute && !hasSessionRestoreForRoute) {
         isRestoringSnapshotRef.current = false;
         hasRestoredScrollRef.current = true;
         pendingScrollRestoreRef.current = null;
@@ -1203,7 +1181,7 @@ const Products = () => {
         pendingPageRestoreRef.current = null;
       }
     }
-  }, [routeCacheKey]);
+  }, [routeCacheKey, productsRestoreFlagKey]);
 
   useEffect(() => {
     if (isRestoringSnapshotRef.current) {
@@ -1312,13 +1290,9 @@ const Products = () => {
     if (typeof window === "undefined" || !("scrollRestoration" in window.history)) {
       return;
     }
-
-    const previous = window.history.scrollRestoration;
-    window.history.scrollRestoration = "manual";
-
-    return () => {
-      window.history.scrollRestoration = previous;
-    };
+    // Keep browser native restoration enabled to avoid production-only
+    // inconsistencies caused by forcing manual mode.
+    window.history.scrollRestoration = "auto";
   }, []);
 
   useLayoutEffect(() => {
@@ -1397,6 +1371,56 @@ const Products = () => {
       pendingPageRestoreRef.current = null;
     });
   }, [loading, loadingMore, hasMore, currentPage, products.length, loadMoreProducts, routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey]);
+
+  // Hard fallback for production timing differences:
+  // repeated restore attempts until content height settles.
+  useEffect(() => {
+    if (loading || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    const shouldRestore = sessionStorage.getItem(productsRestoreFlagKey) === "1";
+    if (!shouldRestore) {
+      return;
+    }
+
+    const savedScroll = sessionStorage.getItem(productsScrollKey);
+    if (!savedScroll) {
+      return;
+    }
+
+    const targetScroll = Number(savedScroll);
+    if (Number.isNaN(targetScroll)) {
+      return;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 18;
+    const intervalId = window.setInterval(() => {
+      attempts += 1;
+
+      const maxScrollableTop = Math.max(
+        document.documentElement.scrollHeight - window.innerHeight,
+        0
+      );
+      const finalTarget = Math.min(targetScroll, maxScrollableTop);
+      window.scrollTo({ top: finalTarget, behavior: "auto" });
+
+      const reachedTarget = Math.abs(window.scrollY - finalTarget) <= 4;
+      const isLastAttempt = attempts >= maxAttempts;
+      if (reachedTarget || isLastAttempt) {
+        hasRestoredScrollRef.current = true;
+        isRestoringSnapshotRef.current = false;
+        sessionStorage.removeItem(productsRestoreFlagKey);
+        sessionStorage.removeItem(productsScrollKey);
+        sessionStorage.removeItem(productsAnchorKey);
+        sessionStorage.removeItem(productsPageKey);
+        window.clearInterval(intervalId);
+      }
+    }, 120);
+
+    return () => window.clearInterval(intervalId);
+  }, [loading, products.length, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey]);
 
 
   const brandsList = brands.length > 0 ? ["الكل", ...brands.map(brand => brand.name)] : ["الكل"];
