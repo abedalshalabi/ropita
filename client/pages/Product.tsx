@@ -224,6 +224,33 @@ const Product = () => {
     : baseVariantPrice;
   const displayOriginalPrice = baseVariantPrice;
   const displayStockCount = product ? (matchingVariant ? Number(matchingVariant.stock_quantity) : product.stockCount) : 0;
+  const effectiveStockLimit = useMemo(() => {
+    if (!product) return 0;
+    if (product.stockStatus !== 'stock_based') return Number.POSITIVE_INFINITY;
+
+    const limits: number[] = [];
+    const productLimit = Number(product.stockCount);
+    const hasVariants = !!(product.variants && product.variants.length > 0);
+
+    // For variant-based products, a zero product-level stock is often a placeholder.
+    // Use product-level limit only when it is explicitly positive.
+    if (
+      Number.isFinite(productLimit) &&
+      ((hasVariants && productLimit > 0) || (!hasVariants && productLimit >= 0))
+    ) {
+      limits.push(productLimit);
+    }
+
+    if (matchingVariant) {
+      const variantLimit = Number(matchingVariant.stock_quantity);
+      if (Number.isFinite(variantLimit) && variantLimit >= 0) {
+        limits.push(variantLimit);
+      }
+    }
+
+    if (limits.length === 0) return 0;
+    return Math.min(...limits);
+  }, [product, matchingVariant]);
 
   const displayInStock = product ? (
     product.stockStatus === 'in_stock' ||
@@ -471,9 +498,21 @@ const Product = () => {
     loadProduct();
   }, [id]);
 
+  useEffect(() => {
+    if (!product || product.stockStatus !== 'stock_based') return;
+    if (quantity <= effectiveStockLimit) return;
+
+    setQuantity(Math.max(1, effectiveStockLimit));
+  }, [product, quantity, effectiveStockLimit]);
+
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!displayInStock) return;
     if (product) {
+      if (product.stockStatus === 'stock_based' && quantity > effectiveStockLimit) {
+        setQuantity(Math.max(1, effectiveStockLimit));
+        return;
+      }
+
       const buttonElement = event.currentTarget;
 
       // Trigger animation
@@ -517,7 +556,7 @@ const Product = () => {
   const handleQuantityChange = (change: number) => {
     const newQuantity = quantity + change;
     if (newQuantity < 1) return;
-    if (product?.stockStatus === 'stock_based' && newQuantity > displayStockCount) return;
+    if (product?.stockStatus === 'stock_based' && newQuantity > effectiveStockLimit) return;
     setQuantity(newQuantity);
   };
 
