@@ -29,8 +29,6 @@ const Checkout = () => {
     email: "",
     city: "",
     district: "",
-    street: "",
-    building: "",
     additionalInfo: "",
     paymentMethod: "cod",
   });
@@ -55,8 +53,6 @@ const Checkout = () => {
         email: prev.email || user.email || "",
         city: prev.city || user.city || "",
         district: prev.district || user.district || "",
-        street: prev.street || user.street || "",
-        building: prev.building || user.building || ""
       }));
     }
   }, [isAuthenticated, user, cities]);
@@ -102,7 +98,7 @@ const Checkout = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCity) {
-      alert("يرجى اختيار المدينة لحساب تكلفة الشحن قبل تأكيد الطلب.");
+      alert("يرجى اختيار المنطقة لحساب تكلفة الشحن قبل تأكيد الطلب.");
       return;
     }
 
@@ -134,8 +130,6 @@ const Checkout = () => {
         customer_phone: formData.phone,
         customer_city: formData.city,
         customer_district: formData.district,
-        customer_street: formData.street || undefined,
-        customer_building: formData.building || undefined,
         customer_additional_info: formData.additionalInfo || undefined,
         payment_method: formData.paymentMethod,
         items: orderItems,
@@ -248,7 +242,7 @@ const Checkout = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      المدينة *
+                      المنطقة *
                     </label>
                     <select
                       name="city"
@@ -258,7 +252,7 @@ const Checkout = () => {
                       disabled={loadingCities}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow disabled:bg-gray-100 disabled:cursor-not-allowed"
                     >
-                      <option value="">{loadingCities ? 'جاري تحميل المدن...' : 'اختر المدينة'}</option>
+                      <option value="">{loadingCities ? 'جاري تحميل المناطق...' : 'اختر المنطقة'}</option>
                       {cities.map(city => (
                         <option key={city.id} value={city.name}>
                           {city.name} {selectedCity?.id === city.id && `(${city.shipping_cost} شيكل - ${city.delivery_time_days} يوم)`}
@@ -282,7 +276,7 @@ const Checkout = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      الحي *
+                      المدينة / العنوان الكامل *
                     </label>
                     <input
                       type="text"
@@ -290,30 +284,6 @@ const Checkout = () => {
                       value={formData.district}
                       onChange={handleInputChange}
                       required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      الشارع
-                    </label>
-                    <input
-                      type="text"
-                      name="street"
-                      value={formData.street}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      رقم المبنى
-                    </label>
-                    <input
-                      type="text"
-                      name="building"
-                      value={formData.building}
-                      onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow"
                     />
                   </div>
@@ -444,7 +414,7 @@ const Checkout = () => {
                   <div className="flex justify-between items-center py-2">
                     <span className="text-base font-medium text-gray-700">الشحن</span>
                     <span className={`text-base font-semibold ${shippingCost === 0 ? "text-green-600" : "text-gray-900"}`}>
-                      {shippingCost === null ? "يتم احتسابه عند اختيار المدينة" : (shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`)}
+                      {shippingCost === null ? "يتم احتسابه عند اختيار المنطقة" : (shippingCost === 0 ? "مجاني" : `${shippingCost.toLocaleString()} شيكل`)}
                     </span>
                   </div>
                   <div className="border-t-2 border-gray-300 pt-4 mt-4 flex justify-between items-center">
@@ -459,7 +429,7 @@ const Checkout = () => {
                   disabled={!canSubmitOrder}
                   className="w-full bg-brand-blue text-white py-3 rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? "جاري إتمام الطلب..." : (selectedCity ? "تأكيد الطلب" : "اختر المدينة أولاً")}
+                  {isSubmitting ? "جاري إتمام الطلب..." : (selectedCity ? "تأكيد الطلب" : "اختر المنطقة أولاً")}
                 </button>
 
                 {/* Security Notice */}
