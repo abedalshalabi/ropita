@@ -9,6 +9,7 @@ import {
   Tag,
   TrendingUp,
   Heart,
+  Eye,
   MapPin,
   Phone,
   Mail,
@@ -23,7 +24,9 @@ import SimpleCarousel3D from "../components/SimpleCarousel3D";
 import SEO from "../components/SEO";
 import { productsAPI, categoriesAPI, brandsAPI, settingsAPI, sliderAPI, newsletterAPI } from "../services/api";
 import { useSiteSettings } from "../context/SiteSettingsContext";
-import { getStorageUrl } from "../config/env";
+import { BASE_PATH, getStorageUrl } from "../config/env";
+
+const PLACEHOLDER_IMAGE = `${BASE_PATH || ""}/placeholder.svg`;
 
 const colorNameToHex: Record<string, string> = {
   "احمر": "#ef4444",
@@ -98,6 +101,65 @@ const extractAvailableColors = (filterValues?: Record<string, any>): string[] =>
   });
 
   return Array.from(colors);
+};
+
+const resolveProductImages = (product: any) => {
+  const collectedImages: string[] = Array.isArray(product.images)
+    ? product.images
+      .map((img: any) => {
+        if (!img) return '';
+        if (typeof img === 'string') {
+          return img;
+        }
+        if (typeof img === 'object') {
+          if (img.image_url) {
+            return img.image_url;
+          }
+          if (img.image_path) {
+            return getStorageUrl(img.image_path);
+          }
+        }
+        return '';
+      })
+      .filter((url: string) => !!url)
+    : [];
+
+  let imageUrl = '';
+
+  const firstImageSource =
+    product.rawImages?.[0] ??
+    (Array.isArray(product.images) ? product.images[0] : undefined);
+
+  if (product.cover_image) {
+    imageUrl = getStorageUrl(product.cover_image);
+  } else if (firstImageSource) {
+    if (typeof firstImageSource === 'string') {
+      imageUrl = firstImageSource;
+    } else if (typeof firstImageSource === 'object') {
+      if (firstImageSource.image_url) {
+        imageUrl = firstImageSource.image_url;
+      } else if (firstImageSource.image_path) {
+        imageUrl = getStorageUrl(firstImageSource.image_path);
+      }
+    }
+  }
+
+  if (!imageUrl && typeof product.image === 'string' && product.image.trim() !== '') {
+    imageUrl = product.image;
+  }
+
+  if (!imageUrl && collectedImages.length > 0) {
+    imageUrl = collectedImages[0];
+  }
+
+  if (!imageUrl) {
+    imageUrl = PLACEHOLDER_IMAGE;
+  }
+
+  return {
+    image: imageUrl,
+    images: collectedImages,
+  };
 };
 
 const Index = () => {
@@ -218,14 +280,7 @@ const Index = () => {
 
   // Use featured products from API or fallback to static data
   const featuredOffers = featuredProducts.map((product) => {
-    const firstImage = product.images?.[0] ?? {};
-    const imageUrl =
-      product.cover_image ||
-      firstImage.image_url ||
-      firstImage.image_path ||
-      firstImage.url ||
-      product.image ||
-      "https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=300&h=300&fit=crop";
+    const { image, images } = resolveProductImages(product);
 
     const basePrice = Number(product.price || 0);
     const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
@@ -239,7 +294,8 @@ const Index = () => {
       price: salePrice,
       originalPrice: basePrice,
       comparePrice: product.compare_price ? Number(product.compare_price) : 0,
-      image: getStorageUrl(imageUrl),
+      image,
+      images,
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       category: product.category?.name || "عام",
@@ -253,19 +309,13 @@ const Index = () => {
       stockStatus: product.stock_status || (product.in_stock ? "متوفر" : "غير متوفر"),
       inStock: product.in_stock !== false && product.stock_status !== 'out_of_stock',
       filterValues: product.filter_values || {},
+      viewsCount: product.views_count || 0,
     };
   });
 
   // Latest products from API (no fallback)
   const latestProductsData = latestProducts.map((product) => {
-    const firstImage = product.images?.[0] ?? {};
-    const imageUrl =
-      product.cover_image ||
-      firstImage.image_url ||
-      firstImage.image_path ||
-      firstImage.url ||
-      product.image ||
-      "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=300&h=300&fit=crop";
+    const { image, images } = resolveProductImages(product);
 
     const basePrice = Number(product.price || 0);
     const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
@@ -279,7 +329,8 @@ const Index = () => {
       price: salePrice,
       originalPrice: basePrice,
       comparePrice: product.compare_price ? Number(product.compare_price) : 0,
-      image: getStorageUrl(imageUrl),
+      image,
+      images,
       rating: product.rating || 0,
       reviews: product.reviews_count || 0,
       brand: product.brand?.name || "",
@@ -292,6 +343,7 @@ const Index = () => {
       hasPriceRange: product.has_price_range || false,
       maxPrice: product.max_price,
       filterValues: product.filter_values || {},
+      viewsCount: product.views_count || 0,
     };
   });
 
@@ -414,7 +466,7 @@ const Index = () => {
   };
 
   const HomeProductCard = ({ product, brand }: { product: any; brand?: string }) => {
-    const imageForAnimation = product.image || "/placeholder.svg";
+    const imageForAnimation = product.image || product.images?.[0] || PLACEHOLDER_IMAGE;
     const discountPercentage = Number(product.discountPercentage ?? product.discount ?? 0);
     const comparePrice = Number(product.originalPrice ?? product.comparePrice ?? 0);
     const hasDiscount = discountPercentage > 0 || (comparePrice > 0 && comparePrice > Number(product.price));
@@ -427,12 +479,12 @@ const Index = () => {
         <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
           <Link to={`/product/${product.id}`} className="block w-full h-full">
             <img
-              src={product.image || "/placeholder.svg"}
+              src={product.image || product.images?.[0] || PLACEHOLDER_IMAGE}
               alt={product.name}
               className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
               loading="lazy"
               onError={(e) => {
-                e.currentTarget.src = "/placeholder.svg";
+                e.currentTarget.src = PLACEHOLDER_IMAGE;
               }}
             />
           </Link>
@@ -504,7 +556,12 @@ const Index = () => {
           </div>
         )}
 
-        <div className="flex items-center gap-2 mb-2 md:mb-4 flex-wrap">
+        <div className="flex items-center gap-1 mb-1 md:mb-3 mt-auto text-[10px] md:text-xs text-gray-500">
+          <Eye className="w-3 h-3 md:w-3.5 md:h-3.5" />
+          <span>{product.viewsCount || 0}</span>
+        </div>
+
+        <div className="flex items-center gap-2 mb-2 md:mb-4">
           <span className="text-lg md:text-xl font-bold text-brand-green">
             {product.hasPriceRange ? `ابتداءً من: ${formatPrice(product.price)}` : formatPrice(product.price)} ₪
           </span>
@@ -518,6 +575,7 @@ const Index = () => {
         <button
           onClick={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             if (!product.inStock) return;
 
             if (product.hasVariants) {
@@ -902,7 +960,7 @@ const Index = () => {
           </div>
 
           {featuredOffers.length > 0 ? (
-            <div className="product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
               {featuredOffers.map((product) => (
                 <HomeProductCard key={product.id} product={product} brand="متنوع" />
               ))}
@@ -936,7 +994,7 @@ const Index = () => {
           </div>
 
           {latestProductsData.length > 0 ? (
-            <div className="product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
               {latestProductsData.map((product) => (
                 <HomeProductCard key={product.id} product={product} brand={product.brand} />
               ))}
