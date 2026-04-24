@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Search,
@@ -154,12 +154,61 @@ const extractAvailableColors = (filterValues?: Record<string, any>): string[] =>
   return Array.from(colors);
 };
 
+type ProductsViewCache = {
+  key: string;
+  products: Product[];
+  currentPage: number;
+  hasMore: boolean;
+  scrollY: number;
+  anchorProductId: number | null;
+  shouldRestore: boolean;
+};
+
+let productsViewCache: ProductsViewCache | null = null;
+
 const Products = () => {
   const { addItem } = useCart();
   const { triggerAnimation } = useAnimation();
   const { wishlistProcessing, toggleWishlist, isWishlisted } = useWishlist();
   const location = useLocation();
   const navigate = useNavigate();
+  const routeCacheKey = `${location.pathname}${location.search}`;
+  const productsSnapshotKey = `products-snapshot:${location.pathname}${location.search}`;
+  const productsRestoreFlagKey = `products-restore:${location.pathname}${location.search}`;
+  const initialProductsSnapshot = useMemo(() => {
+    if (productsViewCache?.key === routeCacheKey && productsViewCache.shouldRestore) {
+      return {
+        products: productsViewCache.products,
+        currentPage: productsViewCache.currentPage,
+        hasMore: productsViewCache.hasMore,
+      };
+    }
+
+    const shouldRestore = sessionStorage.getItem(productsRestoreFlagKey) === "1";
+    if (!shouldRestore) {
+      return null;
+    }
+
+    try {
+      const raw = sessionStorage.getItem(productsSnapshotKey);
+      if (!raw) {
+        return null;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.products)) {
+        return null;
+      }
+
+      return {
+        products: parsed.products as Product[],
+        currentPage: Number(parsed.currentPage) || 1,
+        hasMore: parsed.hasMore !== false,
+      };
+    } catch {
+      return null;
+    }
+  }, [routeCacheKey, productsRestoreFlagKey, productsSnapshotKey]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedBrand, setSelectedBrand] = useState("الكل");
@@ -169,7 +218,7 @@ const Products = () => {
   const [collapsedFilters, setCollapsedFilters] = useState<Record<string, boolean>>({});
 
   // API State
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => initialProductsSnapshot?.products || []);
   const [categories, setCategories] = useState<any[]>([]);
   const [allCategoriesList, setAllCategoriesList] = useState<any[]>([]);
   const [subcategories, setSubcategories] = useState<any[]>([]);
@@ -178,9 +227,16 @@ const Products = () => {
   const [selectedFilters, setSelectedFilters] = useState<{ [key: string]: string }>({});
   const [allBrands, setAllBrands] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !initialProductsSnapshot);
   const [error, setError] = useState("");
   const [showProductViews, setShowProductViews] = useState(true);
+  const hasRestoredScrollRef = useRef(false);
+  const pendingScrollRestoreRef = useRef<number | null>(null);
+  const pendingProductRestoreRef = useRef<number | null>(null);
+  const pendingPageRestoreRef = useRef<number | null>(null);
+  const productsScrollKey = `products-scroll:${location.pathname}${location.search}`;
+  const productsAnchorKey = `products-anchor:${location.pathname}${location.search}`;
+  const productsPageKey = `products-page:${location.pathname}${location.search}`;
 
   const selectedParentCategory = useMemo(() => {
     if (selectedCategoryId === null) {
@@ -202,9 +258,35 @@ const Products = () => {
   }, [selectedCategoryId, categories, allCategoriesList]);
 
   // Pagination state for infinity scroll
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(() => initialProductsSnapshot?.currentPage || 1);
+  const [hasMore, setHasMore] = useState(() => initialProductsSnapshot?.hasMore ?? true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isRestoringView, setIsRestoringView] = useState(Boolean(initialProductsSnapshot));
+  const skipInitialReloadRef = useRef(Boolean(initialProductsSnapshot));
+  const isRestoringSnapshotRef = useRef(Boolean(initialProductsSnapshot));
+
+  const saveProductsScrollPosition = useCallback((productId?: number) => {
+    productsViewCache = {
+      key: routeCacheKey,
+      products,
+      currentPage,
+      hasMore,
+      scrollY: window.scrollY,
+      anchorProductId: productId ?? null,
+      shouldRestore: true,
+    };
+    sessionStorage.setItem(productsRestoreFlagKey, "1");
+    sessionStorage.setItem(productsScrollKey, String(window.scrollY));
+    sessionStorage.setItem(productsPageKey, String(currentPage));
+    sessionStorage.setItem(productsSnapshotKey, JSON.stringify({
+      products,
+      currentPage,
+      hasMore,
+    }));
+    if (productId) {
+      sessionStorage.setItem(productsAnchorKey, String(productId));
+    }
+  }, [routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey, productsSnapshotKey, currentPage, products, hasMore]);
 
   // Map URL paths to category names for SEO-friendly URLs
   const pathToCategoryMap: { [key: string]: string } = {
@@ -365,7 +447,9 @@ const Products = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        setLoading(true);
+        if (!initialProductsSnapshot) {
+          setLoading(true);
+        }
         setError("");
 
         // Load main categories, all categories, and all brands
@@ -408,7 +492,7 @@ const Products = () => {
     };
 
     loadData();
-  }, [flattenCategories]);
+  }, [flattenCategories, initialProductsSnapshot]);
 
   // Products will be loaded by the filters useEffect below
 
@@ -942,6 +1026,15 @@ const Products = () => {
 
   // Reload products when filters change (reset to page 1)
   useEffect(() => {
+    if (isRestoringSnapshotRef.current) {
+      return;
+    }
+
+    if (skipInitialReloadRef.current) {
+      skipInitialReloadRef.current = false;
+      return;
+    }
+
     // Debounce reduced to 300ms for better responsiveness
     const timeoutId = setTimeout(() => {
       // Don't clear products here, let loadProducts replace them to avoid layout jumps
@@ -985,6 +1078,155 @@ const Products = () => {
     };
   }, [hasMore, loadMoreProducts, products.length]); // Re-attach when products change (position changes)
 
+  useEffect(() => {
+    hasRestoredScrollRef.current = false;
+    pendingScrollRestoreRef.current = null;
+    pendingProductRestoreRef.current = null;
+    pendingPageRestoreRef.current = null;
+  }, [productsScrollKey]);
+
+  useEffect(() => {
+    if (!products.length) {
+      return;
+    }
+
+    if (productsViewCache?.key === routeCacheKey) {
+      productsViewCache = {
+        ...productsViewCache,
+        products,
+        currentPage,
+        hasMore,
+      };
+    }
+  }, [routeCacheKey, products, currentPage, hasMore]);
+
+  useEffect(() => {
+    if (loading || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    if (productsViewCache?.key === routeCacheKey && productsViewCache.shouldRestore) {
+      pendingScrollRestoreRef.current = productsViewCache.scrollY;
+      pendingProductRestoreRef.current = productsViewCache.anchorProductId;
+      pendingPageRestoreRef.current = productsViewCache.currentPage;
+      return;
+    }
+
+    const shouldRestore = sessionStorage.getItem(productsRestoreFlagKey) === "1";
+    if (!shouldRestore) {
+      isRestoringSnapshotRef.current = false;
+      setIsRestoringView(false);
+      hasRestoredScrollRef.current = true;
+      return;
+    }
+
+    const savedScroll = sessionStorage.getItem(productsScrollKey);
+    const savedProductId = sessionStorage.getItem(productsAnchorKey);
+    const savedPage = sessionStorage.getItem(productsPageKey);
+    if (!savedScroll) {
+      isRestoringSnapshotRef.current = false;
+      setIsRestoringView(false);
+      hasRestoredScrollRef.current = true;
+      return;
+    }
+
+    pendingScrollRestoreRef.current = Number(savedScroll);
+    pendingProductRestoreRef.current = savedProductId ? Number(savedProductId) : null;
+    pendingPageRestoreRef.current = savedPage ? Number(savedPage) : 1;
+  }, [loading, routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey]);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || !("scrollRestoration" in window.history)) {
+      return;
+    }
+
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const targetScroll = pendingScrollRestoreRef.current;
+    const targetProductId = pendingProductRestoreRef.current;
+    const targetPage = pendingPageRestoreRef.current;
+    if (loading || targetScroll === null || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    if (targetPage && currentPage < targetPage && hasMore && !loadingMore) {
+      loadMoreProducts();
+      return;
+    }
+
+    if (targetProductId) {
+      const productElement = document.querySelector<HTMLElement>(`[data-product-id="${targetProductId}"]`);
+      if (productElement) {
+        hasRestoredScrollRef.current = true;
+        requestAnimationFrame(() => {
+          const maxScrollableTop = Math.max(
+            document.documentElement.scrollHeight - window.innerHeight,
+            0
+          );
+          const fallbackTop = productElement.getBoundingClientRect().top + window.scrollY;
+          const desiredTop = Math.min(
+            targetScroll ?? fallbackTop,
+            maxScrollableTop
+          );
+          window.scrollTo({ top: desiredTop, behavior: "auto" });
+          isRestoringSnapshotRef.current = false;
+          setIsRestoringView(false);
+          if (productsViewCache?.key === routeCacheKey) {
+            productsViewCache = {
+              ...productsViewCache,
+              shouldRestore: false,
+            };
+          }
+          sessionStorage.removeItem(productsRestoreFlagKey);
+          sessionStorage.removeItem(productsScrollKey);
+          sessionStorage.removeItem(productsAnchorKey);
+          sessionStorage.removeItem(productsPageKey);
+          pendingScrollRestoreRef.current = null;
+          pendingProductRestoreRef.current = null;
+          pendingPageRestoreRef.current = null;
+        });
+        return;
+      }
+    }
+
+    const maxScrollableTop = Math.max(
+      document.documentElement.scrollHeight - window.innerHeight,
+      0
+    );
+
+    if (targetScroll > maxScrollableTop + 120 && hasMore && !loadingMore) {
+      loadMoreProducts();
+      return;
+    }
+
+    hasRestoredScrollRef.current = true;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: Math.min(targetScroll, maxScrollableTop), behavior: "auto" });
+      isRestoringSnapshotRef.current = false;
+      setIsRestoringView(false);
+      if (productsViewCache?.key === routeCacheKey) {
+        productsViewCache = {
+          ...productsViewCache,
+          shouldRestore: false,
+        };
+      }
+      sessionStorage.removeItem(productsRestoreFlagKey);
+      sessionStorage.removeItem(productsScrollKey);
+      sessionStorage.removeItem(productsAnchorKey);
+      sessionStorage.removeItem(productsPageKey);
+      pendingScrollRestoreRef.current = null;
+      pendingProductRestoreRef.current = null;
+      pendingPageRestoreRef.current = null;
+    });
+  }, [loading, loadingMore, hasMore, currentPage, products.length, loadMoreProducts, routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey]);
+
 
   const brandsList = brands.length > 0 ? ["الكل", ...brands.map(brand => brand.name)] : ["الكل"];
 
@@ -996,9 +1238,9 @@ const Products = () => {
     const availableColors = extractAvailableColors(product.filterValues);
 
     return (
-      <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
+      <div data-product-id={product.id} className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
         <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
-          <Link to={`/product/${product.id}`} className="block w-full h-full">
+          <Link to={`/product/${product.id}`} className="block w-full h-full" onClick={() => saveProductsScrollPosition(product.id)}>
             <img
               src={product.image || product.images?.[0] || "/placeholder.svg"}
               alt={product.name}
@@ -1040,7 +1282,7 @@ const Products = () => {
           </button>
         </div>
 
-        <Link to={`/product/${product.id}`} className="block flex-grow">
+        <Link to={`/product/${product.id}`} className="block flex-grow" onClick={() => saveProductsScrollPosition(product.id)}>
           <h3 className="text-sm md:text-base font-semibold text-gray-800 line-clamp-2 hover:text-brand-blue transition-colors mb-1 md:mb-2 min-h-[2.5rem] md:min-h-[3rem]">
             {product.name}
           </h3>
@@ -1093,13 +1335,14 @@ const Products = () => {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (!product.inStock) return;
+              if (!product.inStock) return;
 
-            // If product has variants, redirect to product page instead of adding to cart
-            if (product.hasVariants) {
-              navigate(`/product/${product.id}`);
-              return;
-            }
+              // If product has variants, redirect to product page instead of adding to cart
+              if (product.hasVariants) {
+                saveProductsScrollPosition(product.id);
+                navigate(`/product/${product.id}`);
+                return;
+              }
 
             const imageForAnimation = product.image || product.images?.[0] || "/placeholder.svg";
             triggerAnimation(e.currentTarget, {
@@ -1199,7 +1442,10 @@ const Products = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 arabic">
+    <div
+      className="min-h-screen bg-gray-50 arabic"
+      style={isRestoringView ? { visibility: "hidden" } : undefined}
+    >
       <SEO
         title={pageTitle}
         description={pageDescription}

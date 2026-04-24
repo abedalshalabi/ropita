@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Search, Heart, User, ShoppingCart, Menu, Package, Grid3x3, Award, Tag } from "lucide-react";
 import { useCart } from "../context/CartContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 import { useWishlist } from "../context/WishlistContext";
@@ -71,6 +71,7 @@ const Header = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const headerRef = useRef<HTMLElement | null>(null);
   // استخدام اللوجو المحفوظ مسبقاً كقيمة أولية لتجنب التأخير
   const cachedLogo = typeof window !== 'undefined' ? localStorage.getItem('header_logo_cache') : null;
   const cachedTitle = typeof window !== 'undefined' ? localStorage.getItem('header_title_cache') : null;
@@ -126,6 +127,31 @@ const Header = ({
       window.removeEventListener("scroll", handleScroll);
     };
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    const updateHeaderOffset = () => {
+      const headerHeight = headerRef.current?.offsetHeight ?? 0;
+      const topOffset = isHeaderVisible ? headerHeight + 12 : 16;
+      document.documentElement.style.setProperty("--header-offset", `${topOffset}px`);
+    };
+
+    updateHeaderOffset();
+
+    const resizeObserver = typeof ResizeObserver !== "undefined" && headerRef.current
+      ? new ResizeObserver(() => updateHeaderOffset())
+      : null;
+
+    if (resizeObserver && headerRef.current) {
+      resizeObserver.observe(headerRef.current);
+    }
+
+    window.addEventListener("resize", updateHeaderOffset);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateHeaderOffset);
+    };
+  }, [isHeaderVisible, isMenuOpen, location.pathname, settings.header_announcement_text, settings.header_bottom_nav_links, showSearch, showActions, showBackButton, title, subtitle]);
 
   const loadSettings = async () => {
     try {
@@ -243,6 +269,7 @@ const Header = ({
 
   return (
     <header
+      ref={headerRef}
       className={`sticky top-0 z-50 bg-white shadow-sm transition-transform duration-300 will-change-transform ${
         isHeaderVisible ? "translate-y-0" : "-translate-y-full"
       }`}

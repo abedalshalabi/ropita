@@ -3,11 +3,32 @@ import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { getStorageUrl } from "../config/env";
 import Header from "../components/Header";
+import Swal from "sweetalert2";
 
 const Cart = () => {
   const { state, updateQuantity, removeItem, clearCart } = useCart();
 
   const finalTotal = state.total;
+
+  const handleClearCart = async () => {
+    const result = await Swal.fire({
+      title: "مسح السلة؟",
+      text: "سيتم حذف جميع المنتجات من السلة الحالية.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "نعم، مسح السلة",
+      cancelButtonText: "إلغاء",
+      reverseButtons: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+    });
+
+    if (!result.isConfirmed) {
+      return;
+    }
+
+    await clearCart();
+  };
 
   if (state.items.length === 0) {
     return (
@@ -51,7 +72,7 @@ const Cart = () => {
               <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-gray-800">سلة التسوق</h1>
                 <button
-                  onClick={clearCart}
+                  onClick={handleClearCart}
                   className="text-red-600 hover:text-red-700 flex items-center gap-2"
                 >
                   <Trash2 className="w-4 h-4" />

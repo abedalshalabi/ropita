@@ -242,11 +242,26 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       try {
         await cartAPI.addToCart(item.id, 1, item.variant_id, token);
         loadCartFromBackend();
+        toast({
+          title: "تمت الإضافة إلى السلة",
+          description: item.name,
+          image: getStorageUrl(item.image) || "/placeholder.svg",
+        });
       } catch (error) {
         console.error("Failed to add to cart on backend:", error);
+        toast({
+          title: "تعذر الإضافة إلى السلة",
+          description: "حدث خطأ أثناء الاتصال بالخادم.",
+          variant: "destructive",
+        });
       }
     } else {
       dispatch({ type: "ADD_ITEM", payload: { ...item, quantity: 1 } });
+      toast({
+        title: "تمت الإضافة إلى السلة",
+        description: item.name,
+        image: getStorageUrl(item.image) || "/placeholder.svg",
+      });
     }
   };
 
