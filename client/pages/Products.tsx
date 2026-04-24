@@ -166,6 +166,43 @@ type ProductsViewCache = {
 
 let productsViewCache: ProductsViewCache | null = null;
 const PLACEHOLDER_IMAGE = `${BASE_PATH || ''}/placeholder.svg`;
+const DYNAMIC_FILTERS_PARAM = "filter_values";
+
+const parseDynamicFiltersFromSearch = (search: string): Record<string, string> => {
+  const params = new URLSearchParams(search);
+  const raw = params.get(DYNAMIC_FILTERS_PARAM);
+
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof value === "string" && value.trim() !== "") {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+};
+
+const stringifyDynamicFiltersForSearch = (filters: Record<string, string>): string | null => {
+  const cleaned = Object.entries(filters).reduce<Record<string, string>>((acc, [key, value]) => {
+    if (typeof value === "string" && value.trim() !== "") {
+      acc[key] = value.trim();
+    }
+    return acc;
+  }, {});
+
+  return Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null;
+};
 
 const Products = () => {
   const { addItem } = useCart();
@@ -369,7 +406,7 @@ const Products = () => {
   /**
    * Load category filters for a given category
    */
-  const loadCategoryFilters = useCallback(async (categoryId: number) => {
+  const loadCategoryFilters = useCallback(async (categoryId: number, preserveSelectedFilters: boolean = false) => {
     try {
       console.log('Loading category filters for category ID:', categoryId);
       const response = await categoriesAPI.getCategoryFilters(categoryId);
@@ -378,12 +415,16 @@ const Products = () => {
       console.log('Parsed filters:', filters);
       setCategoryFilters(filters);
       // Clear selected filters when filters change
-      setSelectedFilters({});
+      if (!preserveSelectedFilters) {
+        setSelectedFilters({});
+      }
       return filters;
     } catch (err) {
       console.error("Error loading category filters:", err);
       setCategoryFilters([]);
-      setSelectedFilters({});
+      if (!preserveSelectedFilters) {
+        setSelectedFilters({});
+      }
       return [];
     }
   }, []);
@@ -392,11 +433,13 @@ const Products = () => {
    * Initialize category data (subcategories and filters) based on selected category
    * This is the central function that handles all category-related data loading
    */
-  const initializeCategoryData = useCallback(async (category: any | null) => {
+  const initializeCategoryData = useCallback(async (category: any | null, preserveSelectedFilters: boolean = false) => {
     // Clear everything immediately and synchronously
     setSubcategories([]);
     setCategoryFilters([]);
-    setSelectedFilters({});
+    if (!preserveSelectedFilters) {
+      setSelectedFilters({});
+    }
 
     if (!category || category === null) {
       // Thorough reset
@@ -429,7 +472,7 @@ const Products = () => {
         await loadSubcategories(parentId);
 
         // Load filters for the child category (this is what we filter by)
-        await loadCategoryFilters(categoryId);
+        await loadCategoryFilters(categoryId, preserveSelectedFilters);
       }
     } else {
       // This is a parent category
@@ -443,7 +486,7 @@ const Products = () => {
       }
 
       // Always load filters directly for this category, so general filters show up
-      await loadCategoryFilters(categoryId);
+      await loadCategoryFilters(categoryId, preserveSelectedFilters);
     }
   }, [categories, allCategoriesList, loadSubcategories, loadCategoryFilters]);
 
@@ -507,11 +550,21 @@ const Products = () => {
   useEffect(() => {
     const syncFiltersWithUrl = async () => {
       const params = new URLSearchParams(location.search);
-
-      // Handle search query
-      const searchFromUrl = params.get('search');
-      if (searchFromUrl !== null) {
+      const searchFromUrl = params.get('search') || '';
+      if (searchFromUrl !== searchQuery) {
         setSearchQuery(searchFromUrl);
+      }
+
+      const parsedDynamicFilters = parseDynamicFiltersFromSearch(location.search);
+      const currentDynamicFilters = Object.entries(selectedFilters).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value && value.trim() !== '') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+
+      if (JSON.stringify(parsedDynamicFilters) !== JSON.stringify(currentDynamicFilters)) {
+        setSelectedFilters(parsedDynamicFilters);
       }
 
       // Handle category_id from URL
@@ -533,7 +586,7 @@ const Products = () => {
 
             if (currentCategoryId !== categoryId) {
               // Initialize category data (loads subcategories and filters)
-              await initializeCategoryData(category);
+              await initializeCategoryData(category, Object.keys(parsedDynamicFilters).length > 0);
             }
           }
         } else if (pathToCategoryMap[location.pathname]) {
@@ -549,7 +602,7 @@ const Products = () => {
               : selectedCategoryId;
 
             if (currentCategoryId !== Number(category.id)) {
-              await initializeCategoryData(category);
+              await initializeCategoryData(category, Object.keys(parsedDynamicFilters).length > 0);
             }
           }
         } else {
@@ -564,7 +617,7 @@ const Products = () => {
       const brandIdFromUrl = params.get('brand_id');
       if (brandIdFromUrl && allBrands.length > 0) {
         const brand = allBrands.find(b => b.id === Number(brandIdFromUrl));
-        if (brand) {
+        if (brand && brand.name !== selectedBrand) {
           setSelectedBrand(brand.name);
         }
       } else if (!brandIdFromUrl && selectedBrand !== "الكل") {
@@ -575,10 +628,15 @@ const Products = () => {
       const priceMin = params.get('price_min');
       const priceMax = params.get('price_max');
       if (priceMin !== null || priceMax !== null) {
-        setPriceRange([
+        const nextPriceRange: [number, number] = [
           priceMin ? parseInt(priceMin) : 0,
           priceMax ? parseInt(priceMax) : 50000
-        ]);
+        ];
+        if (nextPriceRange[0] !== priceRange[0] || nextPriceRange[1] !== priceRange[1]) {
+          setPriceRange(nextPriceRange);
+        }
+      } else if (priceRange[0] !== 0 || priceRange[1] !== 50000) {
+        setPriceRange([0, 50000]);
       }
 
       // Handle sort
@@ -591,7 +649,7 @@ const Products = () => {
     };
 
     syncFiltersWithUrl();
-  }, [location.search, categories, allCategoriesList, allBrands, initializeCategoryData, selectedCategoryId, selectedSubcategory, selectedBrand, sortBy]);
+  }, [location.search, location.pathname, categories, allCategoriesList, allBrands, initializeCategoryData, selectedCategoryId, selectedSubcategory, selectedBrand, priceRange, sortBy, searchQuery, selectedFilters]);
 
   const resetAllFilters = useCallback(() => {
     setSelectedFilters({});
@@ -608,6 +666,51 @@ const Products = () => {
     navigate(location.pathname, { replace: true });
   }, [location.pathname, navigate]);
 
+  const updateDynamicFilters = useCallback((nextFiltersInput: Record<string, string>) => {
+    const cleanedFilters = Object.entries(nextFiltersInput).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (value && value.trim() !== '') {
+        acc[key] = value.trim();
+      }
+      return acc;
+    }, {});
+
+    setSelectedFilters(cleanedFilters);
+
+    const params = new URLSearchParams(location.search);
+    const serialized = stringifyDynamicFiltersForSearch(cleanedFilters);
+
+    if (serialized) {
+      params.set(DYNAMIC_FILTERS_PARAM, serialized);
+    } else {
+      params.delete(DYNAMIC_FILTERS_PARAM);
+    }
+
+    params.delete('page');
+
+    const newUrl = params.toString()
+      ? `${location.pathname}?${params.toString()}`
+      : location.pathname;
+    navigate(newUrl, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    const params = new URLSearchParams(location.search);
+
+    if (value.trim()) {
+      params.set('search', value);
+    } else {
+      params.delete('search');
+    }
+
+    params.delete('page');
+
+    const newUrl = params.toString()
+      ? `${location.pathname}?${params.toString()}`
+      : location.pathname;
+    navigate(newUrl, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
   // Handle category selection from UI
   // Updates URL and initializes category data
   const handleCategorySelection = useCallback(async (category: any | null) => {
@@ -622,6 +725,7 @@ const Products = () => {
       // Clear category selection
       params.delete('category_id');
       params.delete('brand_id');
+      params.delete(DYNAMIC_FILTERS_PARAM);
       params.delete('page');
 
       setSelectedCategoryId(null);
@@ -639,6 +743,7 @@ const Products = () => {
       // Update URL
       params.set('category_id', categoryId.toString());
       params.delete('brand_id');
+      params.delete(DYNAMIC_FILTERS_PARAM);
       params.delete('search');
       params.delete('page');
 
@@ -1482,7 +1587,7 @@ const Products = () => {
                       type="text"
                       placeholder="ابحث عن المنتجات..."
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => handleSearchChange(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow"
                     />
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -1592,10 +1697,10 @@ const Products = () => {
                                   <select
                                     value={selectedFilters[filter.name] || ''}
                                     onChange={(e) => {
-                                      setSelectedFilters(prev => ({
-                                        ...prev,
+                                      updateDynamicFilters({
+                                        ...selectedFilters,
                                         [filter.name]: e.target.value
-                                      }));
+                                      });
                                     }}
                                     className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow text-sm ${filter.required
                                       ? 'border-red-300 focus:ring-red-500'
@@ -1625,10 +1730,10 @@ const Products = () => {
                                             } else {
                                               newValues = currentValues.filter(v => v !== option);
                                             }
-                                            setSelectedFilters(prev => ({
-                                              ...prev,
+                                            updateDynamicFilters({
+                                              ...selectedFilters,
                                               [filter.name]: newValues.join(',')
-                                            }));
+                                            });
                                           }}
                                           className={`rounded text-brand-blue focus:ring-brand-yellow ${filter.required
                                             ? 'border-red-300 focus:ring-red-500'
@@ -1646,10 +1751,10 @@ const Products = () => {
                                       type="checkbox"
                                       checked={selectedFilters[filter.name] === 'true'}
                                       onChange={(e) => {
-                                        setSelectedFilters(prev => ({
-                                          ...prev,
+                                        updateDynamicFilters({
+                                          ...selectedFilters,
                                           [filter.name]: e.target.checked ? 'true' : ''
-                                        }));
+                                        });
                                       }}
                                       className={`rounded text-brand-blue focus:ring-brand-yellow ${filter.required
                                         ? 'border-red-300 focus:ring-red-500'
@@ -1665,10 +1770,10 @@ const Products = () => {
                                       type="text"
                                       value={selectedFilters[filter.name] || ''}
                                       onChange={(e) => {
-                                        setSelectedFilters(prev => ({
-                                          ...prev,
+                                        updateDynamicFilters({
+                                          ...selectedFilters,
                                           [filter.name]: e.target.value
-                                        }));
+                                        });
                                       }}
                                       placeholder="مثال: 10-15 قدم"
                                       className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 text-sm ${filter.required
