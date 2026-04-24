@@ -20,6 +20,7 @@ import {
   X
 } from "lucide-react";
 import { adminOrdersAPI } from "../services/adminApi";
+import { getStorageUrl } from "../config/env";
 import Swal from "sweetalert2";
 
 interface OrderItem {
@@ -79,6 +80,17 @@ const AdminOrderView = () => {
   const getOrderItemProductLink = (item: OrderItem) => {
     const productId = item.product?.id;
     return productId ? `/product/${productId}` : null;
+  };
+
+  const getOrderItemImage = (item: OrderItem) => {
+    const rawImage =
+      item.product?.image ||
+      (item as any).product?.cover_image ||
+      (item as any).product_image ||
+      (item as any).image ||
+      "";
+
+    return getStorageUrl(rawImage) || "/placeholder.svg";
   };
 
   useEffect(() => {
@@ -261,22 +273,26 @@ const AdminOrderView = () => {
               <div className="space-y-4">
                 {order.items.map((item) => (
                   <div key={item.id} className="flex items-center space-x-4 space-x-reverse border-b border-gray-200 pb-4 last:border-0 last:pb-0">
-                    {item.product?.image && (
-                      getOrderItemProductLink(item) ? (
-                        <Link to={getOrderItemProductLink(item)!} className="block hover:opacity-90 transition-opacity">
-                          <img
-                            src={item.product.image}
-                            alt={item.product_name}
-                            className="w-16 h-16 object-cover rounded-lg"
-                          />
-                        </Link>
-                      ) : (
+                    {getOrderItemProductLink(item) ? (
+                      <Link to={getOrderItemProductLink(item)!} className="block hover:opacity-90 transition-opacity">
                         <img
-                          src={item.product.image}
+                          src={getOrderItemImage(item)}
                           alt={item.product_name}
                           className="w-16 h-16 object-cover rounded-lg"
+                          onError={(e) => {
+                            e.currentTarget.src = "/placeholder.svg";
+                          }}
                         />
-                      )
+                      </Link>
+                    ) : (
+                      <img
+                        src={getOrderItemImage(item)}
+                        alt={item.product_name}
+                        className="w-16 h-16 object-cover rounded-lg"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg";
+                        }}
+                      />
                     )}
                     <div className="flex-1">
                       {getOrderItemProductLink(item) ? (
