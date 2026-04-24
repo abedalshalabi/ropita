@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
 import {
   ArrowLeft,
@@ -75,6 +75,11 @@ const AdminOrderView = () => {
     payment_status: "",
     notes: ""
   });
+
+  const getOrderItemProductLink = (item: OrderItem) => {
+    const productId = item.product?.id;
+    return productId ? `/product/${productId}` : null;
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -257,14 +262,30 @@ const AdminOrderView = () => {
                 {order.items.map((item) => (
                   <div key={item.id} className="flex items-center space-x-4 space-x-reverse border-b border-gray-200 pb-4 last:border-0 last:pb-0">
                     {item.product?.image && (
-                      <img
-                        src={item.product.image}
-                        alt={item.product_name}
-                        className="w-16 h-16 object-cover rounded-lg"
-                      />
+                      getOrderItemProductLink(item) ? (
+                        <Link to={getOrderItemProductLink(item)!} className="block hover:opacity-90 transition-opacity">
+                          <img
+                            src={item.product.image}
+                            alt={item.product_name}
+                            className="w-16 h-16 object-cover rounded-lg"
+                          />
+                        </Link>
+                      ) : (
+                        <img
+                          src={item.product.image}
+                          alt={item.product_name}
+                          className="w-16 h-16 object-cover rounded-lg"
+                        />
+                      )
                     )}
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{item.product_name}</h3>
+                      {getOrderItemProductLink(item) ? (
+                        <Link to={getOrderItemProductLink(item)!} className="font-medium text-gray-900 hover:text-emerald-600 transition-colors">
+                          {item.product_name}
+                        </Link>
+                      ) : (
+                        <h3 className="font-medium text-gray-900">{item.product_name}</h3>
+                      )}
                       <p className="text-sm text-gray-500">SKU: {item.product_sku}</p>
                       {item.variant_values && Object.keys(item.variant_values).length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-1">
