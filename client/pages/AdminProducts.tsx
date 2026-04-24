@@ -124,6 +124,14 @@ interface FilterState {
 }
 
 type ImportStage = "idle" | "preparing" | "uploading" | "processing" | "completed" | "failed";
+type ImportSource = "upload" | "server";
+
+interface InboxImportAsset {
+  path: string;
+  name: string;
+  size: number;
+  modified_at: number;
+}
 
 interface ImportJobStatus {
   id: number;
@@ -162,8 +170,14 @@ const AdminProducts = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importSource, setImportSource] = useState<ImportSource>("server");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importImagesZip, setImportImagesZip] = useState<File | null>(null);
+  const [serverImportFiles, setServerImportFiles] = useState<InboxImportAsset[]>([]);
+  const [serverImportZips, setServerImportZips] = useState<InboxImportAsset[]>([]);
+  const [selectedServerImportFile, setSelectedServerImportFile] = useState("");
+  const [selectedServerImportZip, setSelectedServerImportZip] = useState("");
+  const [isLoadingImportInbox, setIsLoadingImportInbox] = useState(false);
   const [importResults, setImportResults] = useState<any>(null);
   const [importStage, setImportStage] = useState<ImportStage>("idle");
   const [importProgress, setImportProgress] = useState(0);
@@ -209,14 +223,51 @@ const AdminProducts = () => {
   const resetImportState = () => {
     clearImportPolling();
     setImportResults(null);
+    setImportSource("server");
     setImportFile(null);
     setImportImagesZip(null);
+    setServerImportFiles([]);
+    setServerImportZips([]);
+    setSelectedServerImportFile("");
+    setSelectedServerImportZip("");
+    setIsLoadingImportInbox(false);
     setIsImporting(false);
     setImportStage("idle");
     setImportProgress(0);
     setImportStatusText("");
     setActiveImportId(null);
   };
+
+  const formatImportAssetSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+    if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${bytes} B`;
+  };
+
+  const loadImportInbox = useCallback(async () => {
+    setIsLoadingImportInbox(true);
+    try {
+      const response = await adminProductsAPI.getImportInboxFiles();
+      const inbox = response.inbox || {};
+      setServerImportFiles(inbox.files || []);
+      setServerImportZips(inbox.zips || []);
+    } catch (err: any) {
+      Swal.fire({
+        icon: "error",
+        title: "تعذر تحميل ملفات السيرفر",
+        text: err.response?.data?.message || "تعذر قراءة مجلد الاستيراد من الخادم.",
+      });
+    } finally {
+      setIsLoadingImportInbox(false);
+    }
+  }, []);
 
   const importSteps = [
     {
@@ -325,6 +376,12 @@ const AdminProducts = () => {
       showImportError(error.response?.data);
     }
   }, []);
+
+  useEffect(() => {
+    if (showImportModal && importSource === "server") {
+      loadImportInbox();
+    }
+  }, [showImportModal, importSource, loadImportInbox]);
 
   const getProductThumbnail = (product: Product): string => {
     const firstImage = product.images?.[0];
@@ -1871,9 +1928,9 @@ const AdminProducts = () => {
 
       {/* Bulk Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-[1050] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 text-right" dir="rtl">
-            <div className="flex items-center justify-between p-6 border-b">
+        <div className="fixed inset-0 z-[1050] flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-2rem)] overflow-hidden animate-in fade-in zoom-in duration-200 text-right flex flex-col" dir="rtl">
+            <div className="sticky top-0 z-10 flex items-center justify-between p-4 sm:p-6 border-b bg-white">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-emerald-600" />
                 استيراد المنتجات جماعياً
@@ -1889,7 +1946,7 @@ const AdminProducts = () => {
               </button>
             </div>
 
-            <div className="p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8">
               {!importResults ? (
                 <div className="space-y-6">
                   {/* Step 1: Download Template */}
@@ -1923,35 +1980,122 @@ const AdminProducts = () => {
                     </button>
                   </div>
 
-                  {/* Step 2: Upload Files */}
+                  {/* Step 2: Import Source */}
                   <div className="space-y-5">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
                       <span className="bg-gray-200 text-gray-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span>
-                      رفع الملفات
+                      اختيار مصدر الملفات
                     </h3>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">ملف المنتجات (Excel أو CSV) *</label>
-                        <input
-                          type="file"
-                          accept=".xlsx,.xls,.csv"
-                          onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                          className="block w-full text-sm text-gray-500 file:ml-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 border border-gray-200 rounded-lg p-1"
-                        />
-                      </div>
 
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">صور المنتجات (اختياري)</label>
-                        <input
-                          type="file"
-                          accept=".zip,application/zip"
-                          onChange={(e) => setImportImagesZip(e.target.files?.[0] || null)}
-                          className="block w-full text-sm text-gray-500 file:ml-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 border border-gray-200 rounded-lg p-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-2 text-right">يمكنك اختيار عدة صور معاً. يجب أن تطابق أسماء الصور ما كتبته في عمود "image_filenames".</p>
-                      </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        disabled={isImporting}
+                        onClick={() => setImportSource("server")}
+                        className={`rounded-xl border px-4 py-3 text-right transition ${
+                          importSource === "server"
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-900"
+                            : "border-gray-200 bg-white text-gray-700 hover:border-emerald-200"
+                        }`}
+                      >
+                        <div className="font-bold">من السيرفر / FTP</div>
+                        <div className="text-xs mt-1 text-gray-600">استورد من ملفات موجودة مسبقًا داخل مجلدات الاستيراد.</div>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isImporting}
+                        onClick={() => setImportSource("upload")}
+                        className={`rounded-xl border px-4 py-3 text-right transition ${
+                          importSource === "upload"
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-900"
+                            : "border-gray-200 bg-white text-gray-700 hover:border-emerald-200"
+                        }`}
+                      >
+                        <div className="font-bold">رفع من الجهاز</div>
+                        <div className="text-xs mt-1 text-gray-600">استخدم هذا الخيار فقط إذا لم تكن الملفات موجودة على السيرفر.</div>
+                      </button>
                     </div>
+
+                    {importSource === "server" ? (
+                      <div className="space-y-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-semibold text-emerald-900">ملفات السيرفر الجاهزة للاستيراد</div>
+                            <div className="text-xs text-emerald-700 mt-1">ارفع الملفات عبر FTP إلى المجلدات التالية ثم حدّث القائمة.</div>
+                            <div className="font-mono text-[11px] text-emerald-800 mt-2">storage/app/private/imports/products/inbox/files</div>
+                            <div className="font-mono text-[11px] text-emerald-800 mt-1">storage/app/private/imports/products/inbox/zips</div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isLoadingImportInbox || isImporting}
+                            onClick={loadImportInbox}
+                            className="px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-white disabled:opacity-50"
+                          >
+                            {isLoadingImportInbox ? "جاري التحديث..." : "تحديث القائمة"}
+                          </button>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">ملف المنتجات على السيرفر *</label>
+                          <select
+                            value={selectedServerImportFile}
+                            onChange={(e) => setSelectedServerImportFile(e.target.value)}
+                            disabled={isImporting || isLoadingImportInbox}
+                            className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700"
+                          >
+                            <option value="">اختر ملف Excel أو CSV</option>
+                            {serverImportFiles.map((file) => (
+                              <option key={file.path} value={file.path}>
+                                {file.name} - {formatImportAssetSize(file.size)}
+                              </option>
+                            ))}
+                          </select>
+                          {serverImportFiles.length === 0 && !isLoadingImportInbox && (
+                            <p className="mt-2 text-xs text-amber-700">لا توجد ملفات داخل مجلد `files` حتى الآن.</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">ملف الصور ZIP على السيرفر (اختياري)</label>
+                          <select
+                            value={selectedServerImportZip}
+                            onChange={(e) => setSelectedServerImportZip(e.target.value)}
+                            disabled={isImporting || isLoadingImportInbox}
+                            className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700"
+                          >
+                            <option value="">بدون ملف صور مضغوط</option>
+                            {serverImportZips.map((zip) => (
+                              <option key={zip.path} value={zip.path}>
+                                {zip.name} - {formatImportAssetSize(zip.size)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">ملف المنتجات (Excel أو CSV) *</label>
+                          <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                            className="block w-full text-sm text-gray-500 file:ml-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 border border-gray-200 rounded-lg p-1"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-2 text-right">صور المنتجات ZIP (اختياري)</label>
+                          <input
+                            type="file"
+                            accept=".zip,application/zip"
+                            onChange={(e) => setImportImagesZip(e.target.files?.[0] || null)}
+                            className="block w-full text-sm text-gray-500 file:ml-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 border border-gray-200 rounded-lg p-1"
+                          />
+                          <p className="text-xs text-gray-500 mt-2 text-right">يجب أن تطابق أسماء الصور ما كتبته في عمود `image_filenames`.</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {isImporting && (
@@ -2006,14 +2150,19 @@ const AdminProducts = () => {
                       </div>
 
                       <p className="text-xs text-gray-600">
-                        بعد وصول الرفع إلى 100% تبدأ مرحلة المعالجة داخل الخادم، وقد تستغرق وقتًا أطول إذا كان الملف المضغوط كبيرًا أو عدد المنتجات مرتفعًا.
+                        {importSource === "upload"
+                          ? "بعد وصول الرفع إلى 100% تبدأ مرحلة المعالجة داخل الخادم، وقد تستغرق وقتًا أطول إذا كان الملف المضغوط كبيرًا أو عدد المنتجات مرتفعًا."
+                          : "عند اختيار الملفات من السيرفر يبدأ Laravel المعالجة مباشرة دون انتظار رفع الملفات من المتصفح."}
                       </p>
                     </div>
                   )}
 
-                  <div className="pt-6 border-t flex justify-end gap-3 flex-row-reverse">
+                  <div className="sticky bottom-0 bg-white pt-4 sm:pt-6 border-t flex justify-end gap-3 flex-row-reverse">
                     <button
-                      disabled={!importFile || isImporting}
+                      disabled={
+                        isImporting ||
+                        (importSource === "upload" ? !importFile : !selectedServerImportFile)
+                      }
                       onClick={async () => {
                         let keepImportSessionOpen = false;
                         try {
@@ -2023,45 +2172,57 @@ const AdminProducts = () => {
                           setImportStage("preparing");
                           setImportProgress(5);
                           setImportStatusText("جاري تجهيز ملفات الاستيراد...");
-                          const formData = new FormData();
-                          formData.append('file', importFile!);
-                          if (importImagesZip) {
-                            formData.append('images_zip', importImagesZip);
+                          let startRes;
+
+                          if (importSource === "server") {
+                            setImportStage("processing");
+                            setImportProgress(15);
+                            setImportStatusText("تم العثور على ملفات السيرفر. جاري بدء مهمة الاستيراد...");
+                            startRes = await adminProductsAPI.startImportFromInbox({
+                              file_path: selectedServerImportFile,
+                              images_zip_path: selectedServerImportZip || null,
+                            });
+                          } else {
+                            const formData = new FormData();
+                            formData.append('file', importFile!);
+                            if (importImagesZip) {
+                              formData.append('images_zip', importImagesZip);
+                            }
+
+                            setImportStage("uploading");
+                            setImportStatusText(
+                              importImagesZip
+                                ? "جاري رفع ملف المنتجات والملف المضغوط للصور..."
+                                : "جاري رفع ملف المنتجات..."
+                            );
+
+                            const uploadRes = await adminProductsAPI.uploadImportAssets(formData, {
+                              onUploadProgress: (progressEvent) => {
+                                const total = progressEvent.total ?? 0;
+                                if (!total) {
+                                  setImportProgress(20);
+                                  return;
+                                }
+
+                                const percent = Math.round((progressEvent.loaded * 100) / total);
+                                setImportProgress(Math.max(10, Math.min(percent, 100)));
+
+                                if (percent >= 100) {
+                                  setImportStage("processing");
+                                  setImportProgress(100);
+                                  setImportStatusText(
+                                    "تم رفع الملفات. الخادم يعالج الآن فك الضغط وقراءة الملف وحفظ المنتجات..."
+                                  );
+                                }
+                              },
+                            });
+
+                            setImportStage("processing");
+                            setImportProgress(100);
+                            setImportStatusText("تم رفع الملفات. جاري بدء مهمة الاستيراد...");
+                            startRes = await adminProductsAPI.startImport(uploadRes.assets);
                           }
 
-                          setImportStage("uploading");
-                          setImportStatusText(
-                            importImagesZip
-                              ? "جاري رفع ملف المنتجات والملف المضغوط للصور..."
-                              : "جاري رفع ملف المنتجات..."
-                          );
-
-                          const uploadRes = await adminProductsAPI.uploadImportAssets(formData, {
-                            onUploadProgress: (progressEvent) => {
-                              const total = progressEvent.total ?? 0;
-                              if (!total) {
-                                setImportProgress(20);
-                                return;
-                              }
-
-                              const percent = Math.round((progressEvent.loaded * 100) / total);
-                              setImportProgress(Math.max(10, Math.min(percent, 100)));
-
-                              if (percent >= 100) {
-                                setImportStage("processing");
-                                setImportProgress(100);
-                                setImportStatusText(
-                                  "تم رفع الملفات. الخادم يعالج الآن فك الضغط وقراءة الملف وحفظ المنتجات..."
-                                );
-                              }
-                            },
-                          });
-
-                          setImportStage("processing");
-                          setImportProgress(100);
-                          setImportStatusText("تم رفع الملفات. جاري بدء مهمة الاستيراد...");
-
-                          const startRes = await adminProductsAPI.startImport(uploadRes.assets);
                           const importData: ImportJobStatus = startRes.import;
                           keepImportSessionOpen = true;
                           setActiveImportId(importData.id);
@@ -2070,28 +2231,11 @@ const AdminProducts = () => {
                           setImportStatusText(importData.message || "تمت إضافة الاستيراد إلى قائمة المعالجة.");
                           pollImportStatus(importData.id);
                           return;
-
-                          setImportStage("completed");
-                          setImportStatusText("اكتمل استيراد المنتجات بنجاح.");
-                          setImportResults(res.summary);
-                          fetchProducts(); // Refresh list
                         } catch (err: any) {
                           setImportStage("failed");
                           setImportStatusText(err.response?.data?.message || "حدث خطأ أثناء معالجة ملف الاستيراد.");
                           showImportError(err.response?.data || {});
                           return;
-                          const errorData = err.response?.data || {};
-                          const details = [
-                            errorData.message || 'حدث خطأ في معالجة الملف',
-                            errorData.row_number ? `الصف: ${errorData.row_number}` : null,
-                            errorData.sku ? `SKU: ${errorData.sku}` : null,
-                            errorData.import_id ? `رقم التتبع: ${errorData.import_id}` : null,
-                          ].filter(Boolean).join('<br>');
-                          Swal.fire({
-                            icon: 'error',
-                            title: 'خطأ في الاستيراد',
-                            html: details
-                          });
                         } finally {
                           if (!keepImportSessionOpen) {
                             setIsImporting(false);

@@ -282,6 +282,19 @@ export const adminProductsAPI = {
     return response.data;
   },
 
+  async getImportInboxFiles() {
+    const response = await adminApi.get('/v1/admin/products/import-inbox');
+    return response.data;
+  },
+
+  async startImportFromInbox(payload: {
+    file_path: string;
+    images_zip_path?: string | null;
+  }) {
+    const response = await adminApi.post('/v1/admin/products/import/start-from-inbox', payload);
+    return response.data;
+  },
+
   async getImportTemplate() {
     const response = await adminApi.get('/v1/admin/products/import-template', {
       responseType: 'blob',

@@ -1357,6 +1357,39 @@ class ProductController extends Controller
     }
 
     /**
+     * List import files uploaded to the FTP inbox.
+     */
+    public function listImportInboxFiles(): JsonResponse
+    {
+        $fileDirectory = 'imports/products/inbox/files';
+        $zipDirectory = 'imports/products/inbox/zips';
+
+        Storage::makeDirectory($fileDirectory);
+        Storage::makeDirectory($zipDirectory);
+
+        $files = collect(Storage::files($fileDirectory))
+            ->filter(fn ($path) => in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), ['csv', 'txt', 'xlsx', 'xls'], true))
+            ->map(fn ($path) => $this->formatInboxAsset($path))
+            ->sortByDesc('modified_at')
+            ->values();
+
+        $zips = collect(Storage::files($zipDirectory))
+            ->filter(fn ($path) => strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'zip')
+            ->map(fn ($path) => $this->formatInboxAsset($path))
+            ->sortByDesc('modified_at')
+            ->values();
+
+        return response()->json([
+            'inbox' => [
+                'files' => $files,
+                'zips' => $zips,
+                'file_directory' => $fileDirectory,
+                'zip_directory' => $zipDirectory,
+            ],
+        ]);
+    }
+
+    /**
      * Start queued import using pre-uploaded assets.
      */
     public function startImport(Request $request): JsonResponse
@@ -1406,6 +1439,34 @@ class ProductController extends Controller
                 'message' => $productImport->message,
             ],
         ], 202);
+    }
+
+    /**
+     * Start queued import from files that already exist in the FTP inbox.
+     */
+    public function startImportFromInbox(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'file_path' => 'required|string',
+            'images_zip_path' => 'nullable|string',
+        ]);
+
+        $filePath = $this->resolveInboxAssetPath($validated['file_path'], 'imports/products/inbox/files');
+        $zipPath = !empty($validated['images_zip_path'])
+            ? $this->resolveInboxAssetPath($validated['images_zip_path'], 'imports/products/inbox/zips')
+            : null;
+
+        $payload = [
+            'file_path' => $filePath,
+            'file_name' => basename($filePath),
+            'images_zip_path' => $zipPath,
+            'images_zip_name' => $zipPath ? basename($zipPath) : null,
+        ];
+
+        $proxyRequest = $request->duplicate($payload);
+        $proxyRequest->setUserResolver(fn () => $request->user());
+
+        return $this->startImport($proxyRequest);
     }
 
     /**
@@ -1797,6 +1858,36 @@ class ProductController extends Controller
                 'completed_at' => $productImport->completed_at,
             ],
         ]);
+    }
+
+    private function formatInboxAsset(string $path): array
+    {
+        return [
+            'path' => $path,
+            'name' => basename($path),
+            'size' => Storage::size($path),
+            'modified_at' => Storage::lastModified($path),
+        ];
+    }
+
+    private function resolveInboxAssetPath(string $path, string $directory): string
+    {
+        $normalized = trim(str_replace('\\', '/', $path), '/');
+        $expectedPrefix = trim($directory, '/');
+
+        if (!str_starts_with($normalized, $expectedPrefix . '/')) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'file_path' => ['المسار المحدد خارج مجلد الاستيراد المسموح.'],
+            ]);
+        }
+
+        if (!Storage::exists($normalized)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'file_path' => ['الملف المحدد غير موجود داخل مجلد الاستيراد.'],
+            ]);
+        }
+
+        return $normalized;
     }
 
     private function extractFiltersFromRow(array $data, callable $normalize, array $filterMap)

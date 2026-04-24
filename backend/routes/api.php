@@ -173,8 +173,10 @@ Route::prefix('v1')->group(function () {
 
               // Product management
               Route::get('/admin/products/import-template', [ProductController::class, 'exportImportTemplate']);
+              Route::get('/admin/products/import-inbox', [ProductController::class, 'listImportInboxFiles']);
               Route::post('/admin/products/import-assets', [ProductController::class, 'uploadImportAssets']);
               Route::post('/admin/products/import/start', [ProductController::class, 'startImport']);
+              Route::post('/admin/products/import/start-from-inbox', [ProductController::class, 'startImportFromInbox']);
               Route::post('/admin/products/import', [ProductController::class, 'importProducts']);
               Route::get('/admin/products/import/{productImport}', [ProductController::class, 'importStatus']);
               Route::post('/admin/products/bulk-discount', [ProductController::class, 'bulkApplyDiscount']);
