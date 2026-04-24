@@ -18,12 +18,14 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 use App\Models\Filter;
 use App\Models\ProductImage;
+use App\Models\ProductImport;
 use App\Support\MediaUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\ProductImportTemplate;
+use App\Jobs\ProcessProductImport;
 
 class ProductController extends Controller
 {
@@ -1321,6 +1323,92 @@ class ProductController extends Controller
     }
 
     /**
+     * Upload import assets before starting the queued import.
+     */
+    public function uploadImportAssets(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt,xlsx,xls',
+            'images_zip' => 'nullable|file|mimes:zip|max:3145728',
+        ]);
+
+        $file = $request->file('file');
+        $zipFile = $request->file('images_zip');
+
+        $storedFilePath = $file->storeAs(
+            'imports/products',
+            Str::uuid() . '.' . $file->getClientOriginalExtension()
+        );
+
+        $storedZipPath = $zipFile?->storeAs(
+            'imports/products',
+            Str::uuid() . '.zip'
+        );
+
+        return response()->json([
+            'message' => 'تم رفع ملفات الاستيراد بنجاح.',
+            'assets' => [
+                'file_path' => $storedFilePath,
+                'file_name' => $file->getClientOriginalName(),
+                'images_zip_path' => $storedZipPath,
+                'images_zip_name' => $zipFile?->getClientOriginalName(),
+            ],
+        ]);
+    }
+
+    /**
+     * Start queued import using pre-uploaded assets.
+     */
+    public function startImport(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'file_path' => 'required|string',
+            'file_name' => 'required|string',
+            'images_zip_path' => 'nullable|string',
+            'images_zip_name' => 'nullable|string',
+        ]);
+
+        if (!Storage::exists($validated['file_path'])) {
+            return response()->json([
+                'message' => 'ملف المنتجات المرفوع غير موجود.',
+            ], 422);
+        }
+
+        if (!empty($validated['images_zip_path']) && !Storage::exists($validated['images_zip_path'])) {
+            return response()->json([
+                'message' => 'ملف الصور المضغوط المرفوع غير موجود.',
+            ], 422);
+        }
+
+        $productImport = ProductImport::create([
+            'uuid' => (string) Str::uuid(),
+            'admin_id' => $request->user()?->id,
+            'status' => 'queued',
+            'stage' => 'queued',
+            'progress' => 0,
+            'message' => 'تمت إضافة الاستيراد إلى قائمة المعالجة.',
+            'file_path' => $validated['file_path'],
+            'file_name' => $validated['file_name'],
+            'images_zip_path' => $validated['images_zip_path'] ?? null,
+            'images_zip_name' => $validated['images_zip_name'] ?? null,
+        ]);
+
+        ProcessProductImport::dispatch($productImport->id);
+
+        return response()->json([
+            'message' => 'تم بدء المعالجة في الخلفية.',
+            'import' => [
+                'id' => $productImport->id,
+                'uuid' => $productImport->uuid,
+                'status' => $productImport->status,
+                'stage' => $productImport->stage,
+                'progress' => $productImport->progress,
+                'message' => $productImport->message,
+            ],
+        ], 202);
+    }
+
+    /**
      * Import products from CSV
      */
     public function importProducts(Request $request): JsonResponse
@@ -1338,6 +1426,43 @@ class ProductController extends Controller
         $currentRowNumber = null;
         $currentSku = null;
         $zipFile = $request->file('images_zip');
+
+        $storedFilePath = $file->storeAs(
+            'imports/products',
+            Str::uuid() . '.' . $file->getClientOriginalExtension()
+        );
+
+        $storedZipPath = $zipFile?->storeAs(
+            'imports/products',
+            Str::uuid() . '.zip'
+        );
+
+        $productImport = ProductImport::create([
+            'uuid' => (string) Str::uuid(),
+            'admin_id' => $request->user()?->id,
+            'status' => 'queued',
+            'stage' => 'queued',
+            'progress' => 0,
+            'message' => 'تم رفع الملفات وإضافة الاستيراد إلى قائمة المعالجة.',
+            'file_path' => $storedFilePath,
+            'file_name' => $file->getClientOriginalName(),
+            'images_zip_path' => $storedZipPath,
+            'images_zip_name' => $zipFile?->getClientOriginalName(),
+        ]);
+
+        ProcessProductImport::dispatch($productImport->id);
+
+        return response()->json([
+            'message' => 'تم رفع الملفات وبدء المعالجة في الخلفية.',
+            'import' => [
+                'id' => $productImport->id,
+                'uuid' => $productImport->uuid,
+                'status' => $productImport->status,
+                'stage' => $productImport->stage,
+                'progress' => $productImport->progress,
+                'message' => $productImport->message,
+            ],
+        ], 202);
 
         Log::info('Bulk import started', [
             'import_id' => $importId,
@@ -1648,6 +1773,30 @@ class ProductController extends Controller
                 $this->cleanupBulkImportTempDir($tempImportDir);
             }
         }
+    }
+
+    public function importStatus(ProductImport $productImport): JsonResponse
+    {
+        return response()->json([
+            'import' => [
+                'id' => $productImport->id,
+                'uuid' => $productImport->uuid,
+                'status' => $productImport->status,
+                'stage' => $productImport->stage,
+                'progress' => $productImport->progress,
+                'message' => $productImport->message,
+                'total_rows' => $productImport->total_rows,
+                'processed_rows' => $productImport->processed_rows,
+                'created_count' => $productImport->created_count,
+                'updated_count' => $productImport->updated_count,
+                'row_number' => $productImport->row_number,
+                'sku' => $productImport->sku,
+                'summary' => $productImport->summary,
+                'error_message' => $productImport->error_message,
+                'started_at' => $productImport->started_at,
+                'completed_at' => $productImport->completed_at,
+            ],
+        ]);
     }
 
     private function extractFiltersFromRow(array $data, callable $normalize, array $filterMap)
