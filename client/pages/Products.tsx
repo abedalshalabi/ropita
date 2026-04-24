@@ -341,6 +341,35 @@ const Products = () => {
     }
   }, [routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey, productsSnapshotKey, currentPage, products, hasMore]);
 
+  useEffect(() => {
+    return () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      // Fallback persistence: if navigation happened without triggering card onClick,
+      // keep current scroll and nearest visible product as restore anchor.
+      let anchorProductId: number | undefined;
+      const productElements = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-product-id]")
+      );
+
+      for (const element of productElements) {
+        const rect = element.getBoundingClientRect();
+        if (rect.bottom >= 0 && rect.top <= window.innerHeight) {
+          const rawId = element.dataset.productId;
+          const parsedId = rawId ? Number(rawId) : NaN;
+          if (!Number.isNaN(parsedId)) {
+            anchorProductId = parsedId;
+          }
+          break;
+        }
+      }
+
+      saveProductsScrollPosition(anchorProductId);
+    };
+  }, [saveProductsScrollPosition]);
+
   // Map URL paths to category names for SEO-friendly URLs
   const pathToCategoryMap: { [key: string]: string } = {
     "/home-appliances": "الأجهزة المنزلية",
