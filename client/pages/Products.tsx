@@ -305,6 +305,13 @@ const Products = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const skipInitialReloadRef = useRef(Boolean(initialProductsSnapshot));
   const isRestoringSnapshotRef = useRef(Boolean(initialProductsSnapshot));
+  const cancelSnapshotRestoreState = useCallback(() => {
+    isRestoringSnapshotRef.current = false;
+    hasRestoredScrollRef.current = true;
+    pendingScrollRestoreRef.current = null;
+    pendingProductRestoreRef.current = null;
+    pendingPageRestoreRef.current = null;
+  }, []);
 
   const saveProductsScrollPosition = useCallback((productId?: number) => {
     productsViewCache = {
@@ -652,6 +659,7 @@ const Products = () => {
   }, [location.search, location.pathname, categories, allCategoriesList, allBrands, initializeCategoryData, selectedCategoryId, selectedSubcategory, selectedBrand, priceRange, sortBy, searchQuery, selectedFilters]);
 
   const resetAllFilters = useCallback(() => {
+    cancelSnapshotRestoreState();
     setSelectedFilters({});
     setSelectedCategoryId(null);
     setSelectedSubcategory(null);
@@ -664,9 +672,10 @@ const Products = () => {
 
     // Clear URL
     navigate(location.pathname, { replace: true });
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, cancelSnapshotRestoreState]);
 
   const updateDynamicFilters = useCallback((nextFiltersInput: Record<string, string>) => {
+    cancelSnapshotRestoreState();
     const cleanedFilters = Object.entries(nextFiltersInput).reduce<Record<string, string>>((acc, [key, value]) => {
       if (value && value.trim() !== '') {
         acc[key] = value.trim();
@@ -691,9 +700,10 @@ const Products = () => {
       ? `${location.pathname}?${params.toString()}`
       : location.pathname;
     navigate(newUrl, { replace: true });
-  }, [location.pathname, location.search, navigate]);
+  }, [location.pathname, location.search, navigate, cancelSnapshotRestoreState]);
 
   const handleSearchChange = useCallback((value: string) => {
+    cancelSnapshotRestoreState();
     setSearchQuery(value);
     const params = new URLSearchParams(location.search);
 
@@ -709,11 +719,12 @@ const Products = () => {
       ? `${location.pathname}?${params.toString()}`
       : location.pathname;
     navigate(newUrl, { replace: true });
-  }, [location.pathname, location.search, navigate]);
+  }, [location.pathname, location.search, navigate, cancelSnapshotRestoreState]);
 
   // Handle category selection from UI
   // Updates URL and initializes category data
   const handleCategorySelection = useCallback(async (category: any | null) => {
+    cancelSnapshotRestoreState();
     const params = new URLSearchParams(location.search);
 
     // Synchronously clear all dependent filters when category changes
@@ -757,7 +768,7 @@ const Products = () => {
       // Initialize data for the new category
       await initializeCategoryData(category);
     }
-  }, [location.pathname, location.search, navigate, initializeCategoryData]);
+  }, [location.pathname, location.search, navigate, initializeCategoryData, cancelSnapshotRestoreState]);
 
   // Safety net: ensure sub-filters are hidden when no category is selected
   useEffect(() => {
@@ -769,6 +780,7 @@ const Products = () => {
   }, [selectedCategoryId]);
 
   const handleBrandSelection = (brandName: string) => {
+    cancelSnapshotRestoreState();
     setSelectedBrand(brandName);
     const params = new URLSearchParams(location.search);
 
@@ -788,6 +800,7 @@ const Products = () => {
   };
 
   const handlePriceChange = (min: number, max: number) => {
+    cancelSnapshotRestoreState();
     setPriceRange([min, max]);
     const params = new URLSearchParams(location.search);
 
@@ -806,6 +819,7 @@ const Products = () => {
   };
 
   const handleSortChange = (newSort: string) => {
+    cancelSnapshotRestoreState();
     setSortBy(newSort);
     const params = new URLSearchParams(location.search);
 
