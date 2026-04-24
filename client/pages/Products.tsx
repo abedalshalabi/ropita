@@ -176,6 +176,10 @@ const Products = () => {
   const productsSnapshotKey = `products-snapshot:${location.pathname}${location.search}`;
   const productsRestoreFlagKey = `products-restore:${location.pathname}${location.search}`;
   const initialProductsSnapshot = useMemo(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
     if (productsViewCache?.key === routeCacheKey && productsViewCache.shouldRestore) {
       return {
         products: productsViewCache.products,
@@ -261,7 +265,6 @@ const Products = () => {
   const [currentPage, setCurrentPage] = useState(() => initialProductsSnapshot?.currentPage || 1);
   const [hasMore, setHasMore] = useState(() => initialProductsSnapshot?.hasMore ?? true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [isRestoringView, setIsRestoringView] = useState(Boolean(initialProductsSnapshot));
   const skipInitialReloadRef = useRef(Boolean(initialProductsSnapshot));
   const isRestoringSnapshotRef = useRef(Boolean(initialProductsSnapshot));
 
@@ -1115,7 +1118,6 @@ const Products = () => {
     const shouldRestore = sessionStorage.getItem(productsRestoreFlagKey) === "1";
     if (!shouldRestore) {
       isRestoringSnapshotRef.current = false;
-      setIsRestoringView(false);
       hasRestoredScrollRef.current = true;
       return;
     }
@@ -1125,7 +1127,6 @@ const Products = () => {
     const savedPage = sessionStorage.getItem(productsPageKey);
     if (!savedScroll) {
       isRestoringSnapshotRef.current = false;
-      setIsRestoringView(false);
       hasRestoredScrollRef.current = true;
       return;
     }
@@ -1177,7 +1178,6 @@ const Products = () => {
           );
           window.scrollTo({ top: desiredTop, behavior: "auto" });
           isRestoringSnapshotRef.current = false;
-          setIsRestoringView(false);
           if (productsViewCache?.key === routeCacheKey) {
             productsViewCache = {
               ...productsViewCache,
@@ -1210,7 +1210,6 @@ const Products = () => {
     requestAnimationFrame(() => {
       window.scrollTo({ top: Math.min(targetScroll, maxScrollableTop), behavior: "auto" });
       isRestoringSnapshotRef.current = false;
-      setIsRestoringView(false);
       if (productsViewCache?.key === routeCacheKey) {
         productsViewCache = {
           ...productsViewCache,
@@ -1442,10 +1441,7 @@ const Products = () => {
   ];
 
   return (
-    <div
-      className="min-h-screen bg-gray-50 arabic"
-      style={isRestoringView ? { visibility: "hidden" } : undefined}
-    >
+    <div className="min-h-screen bg-gray-50 arabic">
       <SEO
         title={pageTitle}
         description={pageDescription}
