@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Star,
   Heart,
@@ -163,6 +163,7 @@ const Product = () => {
 
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { addItem, updateQuantity } = useCart();
   const { triggerAnimation } = useAnimation();
   const { isWishlisted, toggleWishlist, wishlistProcessing } = useWishlist();
@@ -246,6 +247,10 @@ const Product = () => {
   const displaySku = product ? (matchingVariant?.sku || product.sku) : '';
   const productIsWishlisted = product ? isWishlisted(product.id) : false;
   const isProcessingWishlist = product ? !!wishlistProcessing[product.id] : false;
+  const returnToProductsUrl =
+    (location.state as { fromProductsUrl?: string } | null)?.fromProductsUrl ||
+    sessionStorage.getItem("last-products-route") ||
+    "/products";
 
   useEffect(() => {
     // Inject CKEditor content styles
@@ -682,7 +687,7 @@ const Product = () => {
             <h2 className="text-2xl font-bold text-gray-800 mb-2">المنتج غير موجود</h2>
             <p className="text-gray-600 mb-4">عذراً، لم يتم العثور على المنتج المطلوب</p>
             <Link
-              to="/products"
+              to={returnToProductsUrl}
               className="bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
             >
               العودة للمنتجات
@@ -695,7 +700,7 @@ const Product = () => {
 
   const breadcrumbItems: BreadcrumbItem[] = [
     { label: "الرئيسية", href: "/" },
-    { label: "المنتجات", href: "/products" },
+    { label: "المنتجات", href: returnToProductsUrl },
   ];
 
   if (breadcrumbCategories.main) {

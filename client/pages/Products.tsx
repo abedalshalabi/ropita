@@ -210,6 +210,7 @@ const Products = () => {
   const { wishlistProcessing, toggleWishlist, isWishlisted } = useWishlist();
   const location = useLocation();
   const navigate = useNavigate();
+  const currentProductsRoute = `${location.pathname}${location.search}`;
   const routeCacheKey = `${location.pathname}${location.search}`;
   const productsSnapshotKey = `products-snapshot:${location.pathname}${location.search}`;
   const productsRestoreFlagKey = `products-restore:${location.pathname}${location.search}`;
@@ -279,6 +280,10 @@ const Products = () => {
   const productsScrollKey = `products-scroll:${location.pathname}${location.search}`;
   const productsAnchorKey = `products-anchor:${location.pathname}${location.search}`;
   const productsPageKey = `products-page:${location.pathname}${location.search}`;
+
+  useEffect(() => {
+    sessionStorage.setItem("last-products-route", currentProductsRoute);
+  }, [currentProductsRoute]);
 
   const selectedParentCategory = useMemo(() => {
     if (selectedCategoryId === null) {
@@ -1374,7 +1379,12 @@ const Products = () => {
     return (
       <div data-product-id={product.id} className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
         <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
-          <Link to={`/product/${product.id}`} className="block w-full h-full" onClick={() => saveProductsScrollPosition(product.id)}>
+          <Link
+            to={`/product/${product.id}`}
+            state={{ fromProductsUrl: currentProductsRoute }}
+            className="block w-full h-full"
+            onClick={() => saveProductsScrollPosition(product.id)}
+          >
             <img
               src={product.image || product.images?.[0] || PLACEHOLDER_IMAGE}
               alt={product.name}
@@ -1416,7 +1426,12 @@ const Products = () => {
           </button>
         </div>
 
-        <Link to={`/product/${product.id}`} className="block flex-grow" onClick={() => saveProductsScrollPosition(product.id)}>
+        <Link
+          to={`/product/${product.id}`}
+          state={{ fromProductsUrl: currentProductsRoute }}
+          className="block flex-grow"
+          onClick={() => saveProductsScrollPosition(product.id)}
+        >
           <h3 className="text-sm md:text-base font-semibold text-gray-800 line-clamp-2 hover:text-brand-blue transition-colors mb-1 md:mb-2 min-h-[2.5rem] md:min-h-[3rem]">
             {product.name}
           </h3>
@@ -1474,7 +1489,9 @@ const Products = () => {
               // If product has variants, redirect to product page instead of adding to cart
               if (product.hasVariants) {
                 saveProductsScrollPosition(product.id);
-                navigate(`/product/${product.id}`);
+                navigate(`/product/${product.id}`, {
+                  state: { fromProductsUrl: currentProductsRoute }
+                });
                 return;
               }
 
