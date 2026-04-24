@@ -823,9 +823,9 @@ const Products = () => {
 
   // Load products function with pagination support
   const loadProducts = async (page: number = 1, append: boolean = false) => {
-    // If already loading and not appending, we might want to let it through but cancel the previous one
-    // For now, we'll just check if we're already loading to avoid redundant calls
-    if (loadingRef.current && !append) return;
+    // Prevent duplicate pagination requests, but always allow a full reload
+    // so filter changes can recover from any stale loading state.
+    if (append && loadingRef.current) return;
 
     try {
       if (!append) {
@@ -1134,6 +1134,21 @@ const Products = () => {
   const initialLoadRef = useRef(false);
 
   // Reload products when filters change (reset to page 1)
+  useEffect(() => {
+    // If URL params changed while we were restoring scroll/snapshot state,
+    // cancel restore mode immediately and proceed with normal reload behavior.
+    if (isRestoringSnapshotRef.current) {
+      const isOriginalRestoreRoute = productsViewCache?.key === routeCacheKey;
+      if (!isOriginalRestoreRoute) {
+        isRestoringSnapshotRef.current = false;
+        hasRestoredScrollRef.current = true;
+        pendingScrollRestoreRef.current = null;
+        pendingProductRestoreRef.current = null;
+        pendingPageRestoreRef.current = null;
+      }
+    }
+  }, [routeCacheKey]);
+
   useEffect(() => {
     if (isRestoringSnapshotRef.current) {
       return;
