@@ -15,7 +15,7 @@ import { useAnimation } from "../context/AnimationContext";
 import Header from "../components/Header";
 import SEO from "../components/SEO";
 import { productsAPI, categoriesAPI, brandsAPI, settingsAPI } from "../services/api";
-import { STORAGE_BASE_URL, getStorageUrl } from "../config/env";
+import { BASE_PATH, STORAGE_BASE_URL, getStorageUrl } from "../config/env";
 import { useSiteSettings } from "../context/SiteSettingsContext";
 import { useWishlist } from "../context/WishlistContext";
 
@@ -165,6 +165,7 @@ type ProductsViewCache = {
 };
 
 let productsViewCache: ProductsViewCache | null = null;
+const PLACEHOLDER_IMAGE = `${BASE_PATH || ''}/placeholder.svg`;
 
 const Products = () => {
   const { addItem } = useCart();
@@ -876,7 +877,7 @@ const Products = () => {
         }
 
         if (!imageUrl) {
-          imageUrl = '/placeholder.svg';
+          imageUrl = PLACEHOLDER_IMAGE;
         }
 
         const primaryCategoryIdRaw =
@@ -1241,12 +1242,12 @@ const Products = () => {
         <div className="relative mb-2 md:mb-4 aspect-square overflow-hidden rounded-lg bg-gray-50 flex items-center justify-center">
           <Link to={`/product/${product.id}`} className="block w-full h-full" onClick={() => saveProductsScrollPosition(product.id)}>
             <img
-              src={product.image || product.images?.[0] || "/placeholder.svg"}
+              src={product.image || product.images?.[0] || PLACEHOLDER_IMAGE}
               alt={product.name}
               className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
               onError={(e) => {
                 console.error("Image load error for product", product.id, ":", e.currentTarget.src);
-                e.currentTarget.src = "/placeholder.svg";
+                e.currentTarget.src = PLACEHOLDER_IMAGE;
               }}
             />
           </Link>
@@ -1343,7 +1344,7 @@ const Products = () => {
                 return;
               }
 
-            const imageForAnimation = product.image || product.images?.[0] || "/placeholder.svg";
+            const imageForAnimation = product.image || product.images?.[0] || PLACEHOLDER_IMAGE;
             triggerAnimation(e.currentTarget, {
               image: imageForAnimation,
               name: product.name
