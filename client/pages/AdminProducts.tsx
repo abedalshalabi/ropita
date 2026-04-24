@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
 import {
@@ -125,6 +125,27 @@ interface FilterState {
 
 type ImportStage = "idle" | "preparing" | "uploading" | "processing" | "completed" | "failed";
 
+interface ImportJobStatus {
+  id: number;
+  uuid: string;
+  status: string;
+  stage: string;
+  progress: number;
+  message: string;
+  total_rows?: number | null;
+  processed_rows?: number | null;
+  created_count?: number | null;
+  updated_count?: number | null;
+  row_number?: number | null;
+  sku?: string | null;
+  summary?: {
+    rows_processed: number;
+    created: number;
+    updated: number;
+  } | null;
+  error_message?: string | null;
+}
+
 const AdminProducts = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -147,6 +168,8 @@ const AdminProducts = () => {
   const [importStage, setImportStage] = useState<ImportStage>("idle");
   const [importProgress, setImportProgress] = useState(0);
   const [importStatusText, setImportStatusText] = useState("");
+  const [activeImportId, setActiveImportId] = useState<number | null>(null);
+  const importPollTimeoutRef = useRef<number | null>(null);
 
   // Inline Editing State
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -176,7 +199,15 @@ const AdminProducts = () => {
 
   const navigate = useNavigate();
 
+  const clearImportPolling = () => {
+    if (importPollTimeoutRef.current !== null) {
+      window.clearTimeout(importPollTimeoutRef.current);
+      importPollTimeoutRef.current = null;
+    }
+  };
+
   const resetImportState = () => {
+    clearImportPolling();
     setImportResults(null);
     setImportFile(null);
     setImportImagesZip(null);
@@ -184,6 +215,7 @@ const AdminProducts = () => {
     setImportStage("idle");
     setImportProgress(0);
     setImportStatusText("");
+    setActiveImportId(null);
   };
 
   const importSteps = [
@@ -233,6 +265,67 @@ const AdminProducts = () => {
     return "pending";
   };
 
+  const showImportError = (errorData: any) => {
+    const details = [
+      errorData?.message || errorData?.error_message || 'حدث خطأ في معالجة الملف',
+      errorData?.row_number ? `الصف: ${errorData.row_number}` : null,
+      errorData?.sku ? `SKU: ${errorData.sku}` : null,
+      errorData?.uuid ? `رقم التتبع: ${errorData.uuid}` : null,
+      errorData?.import_id ? `رقم التتبع: ${errorData.import_id}` : null,
+    ].filter(Boolean).join('<br>');
+
+    Swal.fire({
+      icon: 'error',
+      title: 'خطأ في الاستيراد',
+      html: details,
+    });
+  };
+
+  const pollImportStatus = useCallback(async (importId: number) => {
+    try {
+      const response = await adminProductsAPI.getImportStatus(importId);
+      const importData: ImportJobStatus = response.import;
+
+      setActiveImportId(importData.id);
+      setImportStage(importData.status === 'failed'
+        ? 'failed'
+        : importData.status === 'completed'
+          ? 'completed'
+          : 'processing');
+      setImportProgress(importData.progress ?? 0);
+      setImportStatusText(importData.message || 'جاري معالجة ملف الاستيراد...');
+
+      if (importData.status === 'completed') {
+        clearImportPolling();
+        setIsImporting(false);
+        setImportResults(importData.summary || {
+          rows_processed: importData.processed_rows || 0,
+          created: importData.created_count || 0,
+          updated: importData.updated_count || 0,
+        });
+        fetchProducts();
+        return;
+      }
+
+      if (importData.status === 'failed') {
+        clearImportPolling();
+        setIsImporting(false);
+        showImportError(importData);
+        return;
+      }
+
+      importPollTimeoutRef.current = window.setTimeout(() => {
+        pollImportStatus(importId);
+      }, 2000);
+    } catch (error: any) {
+      clearImportPolling();
+      setIsImporting(false);
+      setImportStage('failed');
+      setImportStatusText('تعذر متابعة حالة الاستيراد من الخادم.');
+      showImportError(error.response?.data);
+    }
+  }, []);
+
   const getProductThumbnail = (product: Product): string => {
     const firstImage = product.images?.[0];
     if (!firstImage?.image_url) {
@@ -259,6 +352,12 @@ const AdminProducts = () => {
   useEffect(() => {
     fetchProducts();
   }, [filters, currentPage, perPage]);
+
+  useEffect(() => {
+    return () => {
+      clearImportPolling();
+    };
+  }, []);
 
 
   const loadInitialData = async () => {
@@ -1916,8 +2015,10 @@ const AdminProducts = () => {
                     <button
                       disabled={!importFile || isImporting}
                       onClick={async () => {
+                        let keepImportSessionOpen = false;
                         try {
                           setIsImporting(true);
+                          setActiveImportId(null);
                           setImportResults(null);
                           setImportStage("preparing");
                           setImportProgress(5);
@@ -1935,7 +2036,7 @@ const AdminProducts = () => {
                               : "جاري رفع ملف المنتجات..."
                           );
 
-                          const res = await adminProductsAPI.importProducts(formData, {
+                          const uploadRes = await adminProductsAPI.uploadImportAssets(formData, {
                             onUploadProgress: (progressEvent) => {
                               const total = progressEvent.total ?? 0;
                               if (!total) {
@@ -1956,6 +2057,20 @@ const AdminProducts = () => {
                             },
                           });
 
+                          setImportStage("processing");
+                          setImportProgress(100);
+                          setImportStatusText("تم رفع الملفات. جاري بدء مهمة الاستيراد...");
+
+                          const startRes = await adminProductsAPI.startImport(uploadRes.assets);
+                          const importData: ImportJobStatus = startRes.import;
+                          keepImportSessionOpen = true;
+                          setActiveImportId(importData.id);
+                          setImportStage("processing");
+                          setImportProgress(importData.progress ?? 0);
+                          setImportStatusText(importData.message || "تمت إضافة الاستيراد إلى قائمة المعالجة.");
+                          pollImportStatus(importData.id);
+                          return;
+
                           setImportStage("completed");
                           setImportStatusText("اكتمل استيراد المنتجات بنجاح.");
                           setImportResults(res.summary);
@@ -1963,6 +2078,8 @@ const AdminProducts = () => {
                         } catch (err: any) {
                           setImportStage("failed");
                           setImportStatusText(err.response?.data?.message || "حدث خطأ أثناء معالجة ملف الاستيراد.");
+                          showImportError(err.response?.data || {});
+                          return;
                           const errorData = err.response?.data || {};
                           const details = [
                             errorData.message || 'حدث خطأ في معالجة الملف',
@@ -1976,7 +2093,9 @@ const AdminProducts = () => {
                             html: details
                           });
                         } finally {
-                          setIsImporting(false);
+                          if (!keepImportSessionOpen) {
+                            setIsImporting(false);
+                          }
                         }
                       }}
                       className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold shadow-md flex items-center gap-2"

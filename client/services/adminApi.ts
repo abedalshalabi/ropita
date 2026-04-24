@@ -252,6 +252,36 @@ export const adminProductsAPI = {
     return response.data;
   },
 
+  async uploadImportAssets(
+    formData: FormData,
+    options?: {
+      onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
+    }
+  ) {
+    const response = await adminApi.post('/v1/admin/products/import-assets', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: options?.onUploadProgress,
+    });
+    return response.data;
+  },
+
+  async startImport(payload: {
+    file_path: string;
+    file_name: string;
+    images_zip_path?: string | null;
+    images_zip_name?: string | null;
+  }) {
+    const response = await adminApi.post('/v1/admin/products/import/start', payload);
+    return response.data;
+  },
+
+  async getImportStatus(importId: number | string) {
+    const response = await adminApi.get(`/v1/admin/products/import/${importId}`);
+    return response.data;
+  },
+
   async getImportTemplate() {
     const response = await adminApi.get('/v1/admin/products/import-template', {
       responseType: 'blob',
