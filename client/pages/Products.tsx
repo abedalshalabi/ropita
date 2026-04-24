@@ -1152,6 +1152,14 @@ const Products = () => {
   // Track if initial load has happened
   const initialLoadRef = useRef(false);
 
+  // Consume initial snapshot skip immediately after mount so first user filter change
+  // is never ignored (production race condition after back-navigation restore).
+  useEffect(() => {
+    if (skipInitialReloadRef.current) {
+      skipInitialReloadRef.current = false;
+    }
+  }, []);
+
   // Reload products when filters change (reset to page 1)
   useEffect(() => {
     // If URL params changed while we were restoring scroll/snapshot state,
@@ -1170,11 +1178,6 @@ const Products = () => {
 
   useEffect(() => {
     if (isRestoringSnapshotRef.current) {
-      return;
-    }
-
-    if (skipInitialReloadRef.current) {
-      skipInitialReloadRef.current = false;
       return;
     }
 
