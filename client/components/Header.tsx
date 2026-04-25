@@ -241,10 +241,10 @@ const Header = ({
   };
 
   const getNavLinkClass = (path: string) =>
-    `flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-3.5 py-1 sm:py-1.5 text-xs sm:text-sm md:text-sm font-semibold rounded-lg border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+    `flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 md:px-4 py-1.5 sm:py-2 text-xs sm:text-sm md:text-sm font-bold rounded-xl border transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
       isActiveNavItem(path)
-        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-        : "bg-white text-gray-700 border-emerald-100 hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50"
+        ? "bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-200"
+        : "bg-white text-gray-800 border-gray-200 shadow-sm hover:shadow hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50"
     }`;
 
   const bottomNavLinks = (settings.header_bottom_nav_links || []).filter((item) => {
@@ -563,9 +563,9 @@ const Header = ({
 
       {/* Navigation Links Row - Separate Line */}
       {bottomNavLinks.length > 0 && (
-        <div className="border-t border-gray-200 bg-gradient-to-b from-gray-50 to-white">
-          <div className="container mx-auto px-2 sm:px-4 py-1.5">
-            <nav className="flex items-center justify-center gap-2 sm:gap-3 md:gap-4 overflow-x-auto scrollbar-hide">
+        <div className="border-t border-gray-200 bg-gradient-to-b from-emerald-50/70 via-white to-white shadow-sm">
+          <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-2.5">
+            <nav className="flex items-center justify-center gap-2.5 sm:gap-3 md:gap-4 overflow-x-auto scrollbar-hide">
               {bottomNavLinks.map((item, index) => {
                 const Icon = getNavIcon(item.link);
 
