@@ -5,6 +5,7 @@ import {
   Search,
   Filter,
   Eye,
+  Plus,
   ArrowLeft,
   ArrowRight,
   Package,
@@ -205,6 +206,14 @@ const AdminOrders = () => {
             <h1 className="text-2xl font-bold text-gray-900">إدارة الطلبات</h1>
             <p className="text-gray-600">عرض وإدارة جميع الطلبات</p>
           </div>
+          <button
+            onClick={() => navigate("/admin/orders/create")}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-[0]"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="text-sm">إنشاء طلب جديد</span>
+            Ø¥Ù†Ø´Ø§Ø¡ Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯
+          </button>
         </div>
         {/* Filters and Search */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">

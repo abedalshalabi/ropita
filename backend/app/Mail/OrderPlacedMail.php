@@ -53,6 +53,7 @@ class OrderPlacedMail extends Mailable
                 'orderStatusLabel' => $this->getOrderStatusLabel(),
                 'customerAddress' => $this->getCustomerAddress(),
                 'orderItems' => $this->buildOrderItems($frontendUrl, $backendUrl),
+                'discountSummary' => $this->buildDiscountSummary(),
             ]);
     }
 
@@ -110,19 +111,67 @@ class OrderPlacedMail extends Mailable
                     ?: ($primaryImage?->image_path);
             }
 
+            $unitPrice = (float) $item->price;
+            $originalPrice = (float) ($item->original_price ?? 0);
+            $quantity = (int) $item->quantity;
+            $storedDiscountAmount = (float) ($item->discount_amount ?? 0);
+            $computedLineDiscount = ($originalPrice > $unitPrice)
+                ? max(0, ($originalPrice - $unitPrice) * $quantity)
+                : 0.0;
+            $lineDiscount = $storedDiscountAmount > 0 ? $storedDiscountAmount : $computedLineDiscount;
+            $unitDiscount = $quantity > 0 ? ($lineDiscount / $quantity) : 0.0;
+            $discountPercentage = ($originalPrice > 0 && $originalPrice > $unitPrice)
+                ? round((($originalPrice - $unitPrice) / $originalPrice) * 100, 2)
+                : 0.0;
+
             return [
                 'name' => $item->product_name,
                 'sku' => $item->product_sku,
-                'quantity' => $item->quantity,
-                'price' => (float) $item->price,
-                'original_price' => (float) ($item->original_price ?? 0),
+                'quantity' => $quantity,
+                'price' => $unitPrice,
+                'original_price' => $originalPrice,
                 'total' => (float) $item->total,
+                'unit_discount' => $unitDiscount,
+                'line_discount' => $lineDiscount,
+                'discount_percentage' => $discountPercentage,
                 'variant_values' => is_array($item->variant_values) ? $item->variant_values : [],
                 'image_url' => MediaUrl::publicUrl($imagePath),
                 'image_path' => $this->resolveLocalImagePath($imagePath),
                 'product_url' => $product ? $frontendUrl . '/product/' . $product->id : null,
             ];
         });
+    }
+
+    private function buildDiscountSummary(): array
+    {
+        $itemsDiscountTotal = $this->order->items->sum(function ($item) {
+            $unitPrice = (float) $item->price;
+            $originalPrice = (float) ($item->original_price ?? 0);
+            $quantity = (int) $item->quantity;
+            $storedDiscountAmount = (float) ($item->discount_amount ?? 0);
+
+            if ($storedDiscountAmount > 0) {
+                return $storedDiscountAmount;
+            }
+
+            if ($originalPrice > $unitPrice) {
+                return max(0, ($originalPrice - $unitPrice) * $quantity);
+            }
+
+            return 0.0;
+        });
+
+        $orderLevelDiscount = max(
+            0,
+            ((float) $this->order->subtotal + (float) $this->order->shipping_cost) - (float) $this->order->total
+        );
+
+        return [
+            'items_discount_total' => (float) $itemsDiscountTotal,
+            'order_level_discount' => (float) $orderLevelDiscount,
+            'total_discount' => (float) ($itemsDiscountTotal + $orderLevelDiscount),
+            'has_discount' => (float) ($itemsDiscountTotal + $orderLevelDiscount) > 0,
+        ];
     }
 
     private function resolveProductImages($product): Collection

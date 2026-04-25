@@ -17,14 +17,18 @@ import {
   Mail,
   Edit,
   Save,
-  X
+  X,
+  Search,
+  Trash2
 } from "lucide-react";
-import { adminOrdersAPI } from "../services/adminApi";
+import { adminCitiesAPI, adminOrdersAPI, adminProductsAPI } from "../services/adminApi";
 import { getStorageUrl } from "../config/env";
 import Swal from "sweetalert2";
 
 interface OrderItem {
   id: number;
+  product_id?: number;
+  product_variant_id?: number | null;
   product_name: string;
   product_sku: string;
   quantity: number;
@@ -40,6 +44,43 @@ interface OrderItem {
     image?: string;
   };
 }
+
+type City = {
+  id: number;
+  name: string;
+  shipping_cost: number;
+  free_shipping_threshold?: number | null;
+  is_active: boolean;
+};
+
+type Variant = {
+  id: number;
+  sku?: string;
+  price: number;
+  stock_quantity: number;
+  variant_values?: Record<string, string>;
+  images?: Array<{ image_url?: string; image_path?: string }>;
+};
+
+type ProductSummary = {
+  id: number;
+  name: string;
+  sku?: string;
+  price: number;
+  discount_percentage?: number;
+  stock_status?: string;
+  stock_quantity?: number;
+  images?: Array<{ image_url?: string; image_path?: string; alt_text?: string }>;
+  variants?: Variant[];
+};
+
+type EditableOrderLine = {
+  rowId: string;
+  sourceItemId?: number;
+  product: ProductSummary;
+  quantity: number;
+  selectedVariantId?: number;
+};
 
 interface Order {
   id: number;
@@ -71,10 +112,26 @@ const AdminOrderView = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [cities, setCities] = useState<City[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<ProductSummary[]>([]);
+  const [editableItems, setEditableItems] = useState<EditableOrderLine[]>([]);
   const [editData, setEditData] = useState({
+    customer_name: "",
+    customer_email: "",
+    customer_phone: "",
+    customer_city: "",
+    customer_district: "",
+    customer_street: "",
+    customer_building: "",
+    customer_additional_info: "",
+    payment_method: "cod",
     order_status: "",
     payment_status: "",
-    notes: ""
+    notes: "",
+    discount_type: "",
+    discount_value: "",
+    force_free_shipping: false,
   });
 
   const getOrderItemProductLink = (item: OrderItem) => {
@@ -93,6 +150,49 @@ const AdminOrderView = () => {
     return getStorageUrl(rawImage) || "/placeholder.svg";
   };
 
+  const randomRowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const getSelectedVariant = (line: EditableOrderLine) =>
+    (line.product.variants || []).find((v) => v.id === line.selectedVariantId);
+
+  const getBaseUnitPrice = (line: EditableOrderLine) => {
+    const variant = getSelectedVariant(line);
+    return Number(variant ? variant.price : line.product.price || 0);
+  };
+
+  const getUnitPrice = (line: EditableOrderLine) => {
+    const base = getBaseUnitPrice(line);
+    const pct = Number(line.product.discount_percentage || 0);
+    if (pct > 0) return Number((base * (1 - pct / 100)).toFixed(2));
+    return base;
+  };
+
+  const getStockLimit = (line: EditableOrderLine) => {
+    const variant = getSelectedVariant(line);
+    if (variant) return Number(variant.stock_quantity || 0);
+    return Number(line.product.stock_quantity || 0);
+  };
+
+  const selectedCity = cities.find((c) => c.name === editData.customer_city);
+  const subtotal = editableItems.reduce((sum, line) => sum + getUnitPrice(line) * line.quantity, 0);
+  const orderDiscountAmount = (() => {
+    const value = Number(editData.discount_value || 0);
+    if (!editData.discount_type || value <= 0) return 0;
+    if (editData.discount_type === "percentage") {
+      return Number((subtotal * Math.min(100, value) / 100).toFixed(2));
+    }
+    return Math.min(subtotal, value);
+  })();
+  const subtotalAfterDiscount = Math.max(0, subtotal - orderDiscountAmount);
+  const shippingCost = (() => {
+    if (editData.force_free_shipping) return 0;
+    const base = Number(selectedCity?.shipping_cost || 0);
+    const threshold = Number(selectedCity?.free_shipping_threshold || 0);
+    if (threshold > 0 && subtotalAfterDiscount >= threshold) return 0;
+    return base;
+  })();
+  const grandTotal = subtotalAfterDiscount + shippingCost;
+
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     if (!token) {
@@ -103,16 +203,125 @@ const AdminOrderView = () => {
     fetchOrder();
   }, [id, navigate]);
 
+  useEffect(() => {
+    const loadCities = async () => {
+      try {
+        const response = await adminCitiesAPI.getCities({ per_page: 200 });
+        setCities((response?.data || []).filter((c: City) => c.is_active !== false));
+      } catch (e) {
+        console.error("Failed to load cities:", e);
+      }
+    };
+    loadCities();
+  }, []);
+
+  useEffect(() => {
+    const keyword = productSearch.trim();
+    if (keyword.length < 2) {
+      setProductResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const response = await adminProductsAPI.getProducts({
+          search: keyword,
+          per_page: 15,
+          status: "active",
+        });
+        setProductResults(response?.data || []);
+      } catch (e) {
+        console.error("Failed product search:", e);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [productSearch]);
+
+  const applyOrderToEditState = (orderData: Order) => {
+    setEditData({
+      customer_name: orderData.customer_name || "",
+      customer_email: orderData.customer_email || "",
+      customer_phone: orderData.customer_phone || "",
+      customer_city: orderData.customer_city || "",
+      customer_district: orderData.customer_district || "",
+      customer_street: orderData.customer_street || "",
+      customer_building: orderData.customer_building || "",
+      customer_additional_info: orderData.customer_additional_info || "",
+      payment_method: orderData.payment_method || "cod",
+      order_status: orderData.order_status,
+      payment_status: orderData.payment_status,
+      notes: orderData.notes || "",
+      discount_type: "",
+      discount_value: "",
+      force_free_shipping: Number(orderData.shipping_cost || 0) === 0,
+    });
+  };
+
+  const mapOrderItemsForEdit = async (orderData: Order): Promise<EditableOrderLine[]> => {
+    const productIds = Array.from(
+      new Set(
+        (orderData.items || [])
+          .map((item: any) => Number(item.product_id || item.product?.id))
+          .filter((pid) => Number.isFinite(pid) && pid > 0)
+      )
+    );
+
+    const productMap = new Map<number, any>();
+    await Promise.all(
+      productIds.map(async (productId) => {
+        try {
+          const productResponse = await adminProductsAPI.getProduct(String(productId));
+          if (productResponse?.data) {
+            productMap.set(productId, productResponse.data);
+          }
+        } catch {
+          // Keep fallback item data when product request fails
+        }
+      })
+    );
+
+    return (orderData.items || []).map((item: any) => {
+      const productId = Number(item.product_id || item.product?.id || 0);
+      const fullProduct = productMap.get(productId);
+      const variants: Variant[] = (fullProduct?.variants || []).map((v: any) => ({
+        id: v.id,
+        sku: v.sku,
+        price: Number(v.price || 0),
+        stock_quantity: Number(v.stock_quantity || 0),
+        variant_values: v.variant_values || {},
+        images: (v.images || []).map((img: any) => ({
+          image_url: img.image_url,
+          image_path: img.image_path,
+        })),
+      }));
+
+      return {
+        rowId: randomRowId(),
+        sourceItemId: item.id,
+        product: {
+          id: productId,
+          name: fullProduct?.name || item.product_name,
+          sku: fullProduct?.sku || item.product_sku,
+          price: Number(fullProduct?.price || item.original_price || item.price || 0),
+          discount_percentage: Number(fullProduct?.discount_percentage || 0),
+          stock_status: fullProduct?.stock_status || "stock_based",
+          stock_quantity: Number(fullProduct?.stock_quantity || item.quantity || 0),
+          images: fullProduct?.images || (item.product?.image ? [{ image_url: item.product.image }] : []),
+          variants,
+        },
+        quantity: Number(item.quantity || 1),
+        selectedVariantId: item.product_variant_id || undefined,
+      };
+    });
+  };
+
   const fetchOrder = async () => {
     try {
       setLoading(true);
       const response = await adminOrdersAPI.getOrder(id!);
-      setOrder(response.data);
-      setEditData({
-        order_status: response.data.order_status,
-        payment_status: response.data.payment_status,
-        notes: response.data.notes || ""
-      });
+      const orderData = response.data;
+      setOrder(orderData);
+      applyOrderToEditState(orderData);
+      setEditableItems(await mapOrderItemsForEdit(orderData));
     } catch (err: any) {
       setError(err.response?.data?.message || "فشل في تحميل الطلب");
     } finally {
@@ -122,8 +331,18 @@ const AdminOrderView = () => {
 
   const handleSave = async () => {
     try {
-      await adminOrdersAPI.updateOrder(id!, editData);
-      setOrder(prev => prev ? { ...prev, ...editData } : null);
+      const payload = {
+        ...editData,
+        discount_type: editData.discount_type || null,
+        discount_value: editData.discount_value ? Number(editData.discount_value) : null,
+        items: editableItems.map((line) => ({
+          product_id: line.product.id,
+          product_variant_id: line.selectedVariantId || null,
+          quantity: line.quantity,
+        })),
+      };
+      await adminOrdersAPI.updateOrder(id!, payload);
+      await fetchOrder();
       setIsEditing(false);
       Swal.fire({
         icon: "success",
@@ -139,6 +358,73 @@ const AdminOrderView = () => {
         confirmButtonText: "حسناً"
       });
     }
+  };
+
+  const addProductToOrder = async (productId: number) => {
+    try {
+      const response = await adminProductsAPI.getProduct(String(productId));
+      const product = response?.data;
+      if (!product) return;
+
+      const variants: Variant[] = (product.variants || []).map((v: any) => ({
+        id: v.id,
+        sku: v.sku,
+        price: Number(v.price || 0),
+        stock_quantity: Number(v.stock_quantity || 0),
+        variant_values: v.variant_values || {},
+        images: (v.images || []).map((img: any) => ({
+          image_url: img.image_url,
+          image_path: img.image_path,
+        })),
+      }));
+      const defaultVariant = variants.find((v) => Number(v.stock_quantity) > 0) || variants[0];
+
+      setEditableItems((prev) => [
+        ...prev,
+        {
+          rowId: randomRowId(),
+          product: {
+            id: product.id,
+            name: product.name,
+            sku: product.sku,
+            price: Number(product.price || 0),
+            discount_percentage: Number(product.discount_percentage || 0),
+            stock_status: product.stock_status,
+            stock_quantity: Number(product.stock_quantity || 0),
+            images: (product.images || []).map((img: any) => ({
+              image_url: img.image_url,
+              image_path: img.image_path,
+              alt_text: img.alt_text,
+            })),
+            variants,
+          },
+          quantity: 1,
+          selectedVariantId: defaultVariant?.id,
+        },
+      ]);
+
+      setProductSearch("");
+      setProductResults([]);
+    } catch (e) {
+      console.error("Failed to add product:", e);
+    }
+  };
+
+  const updateLine = (rowId: string, updates: Partial<EditableOrderLine>) => {
+    setEditableItems((prev) =>
+      prev.map((line) => {
+        if (line.rowId !== rowId) return line;
+        const next = { ...line, ...updates };
+        const limit = getStockLimit(next);
+        if (limit > 0 && next.quantity > limit) next.quantity = limit;
+        if (next.quantity < 1) next.quantity = 1;
+        return next;
+      })
+    );
+  };
+
+  const removeLine = (rowId: string) => {
+    setEditableItems((prev) => prev.filter((line) => line.rowId !== rowId));
   };
 
   const getStatusColor = (status: string) => {
@@ -270,7 +556,78 @@ const AdminOrderView = () => {
             {/* Order Items */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">عناصر الطلب</h2>
-              <div className="space-y-4">
+              {isEditing && (
+                <div className="mb-4 space-y-4">
+                  <div className="relative">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      className="w-full border rounded-lg pr-10 pl-3 py-2"
+                      placeholder="ابحث عن منتج لإضافته"
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                    />
+                    {productResults.length > 0 && (
+                      <div className="absolute z-20 mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                        {productResults.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => addProductToOrder(product.id)}
+                            className="w-full text-right px-3 py-2 hover:bg-gray-50 border-b last:border-b-0"
+                          >
+                            {product.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {editableItems.map((line) => {
+                    const variants = line.product.variants || [];
+                    const lineTotal = getUnitPrice(line) * line.quantity;
+                    return (
+                      <div key={line.rowId} className="border rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <div className="font-semibold">{line.product.name}</div>
+                            <div className="text-xs text-gray-500">SKU: {line.product.sku || "-"}</div>
+                            {variants.length > 0 && (
+                              <select
+                                className="mt-2 w-full border rounded-lg px-3 py-2 text-sm"
+                                value={line.selectedVariantId || ""}
+                                onChange={(e) => updateLine(line.rowId, { selectedVariantId: e.target.value ? Number(e.target.value) : undefined, quantity: 1 })}
+                              >
+                                <option value="">اختر الفارينت</option>
+                                {variants.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    {Object.entries(v.variant_values || {}).map(([k, val]) => `${k}: ${val}`).join(" | ")}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                          <button type="button" onClick={() => removeLine(line.rowId)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                          <div className="flex items-center border rounded-lg">
+                            <button type="button" className="px-3 py-1" onClick={() => updateLine(line.rowId, { quantity: line.quantity - 1 })}>-</button>
+                            <input className="w-16 text-center border-x py-1" type="number" min={1} value={line.quantity} onChange={(e) => updateLine(line.rowId, { quantity: Number(e.target.value || 1) })} />
+                            <button type="button" className="px-3 py-1" onClick={() => updateLine(line.rowId, { quantity: line.quantity + 1 })}>+</button>
+                          </div>
+                          <span className="text-sm text-gray-600">المخزون: {getStockLimit(line)}</span>
+                          <span className="text-sm font-semibold text-emerald-700">سعر الوحدة: {getUnitPrice(line).toLocaleString()} شيكل</span>
+                          <span className="text-sm font-bold">الإجمالي: {lineTotal.toLocaleString()} شيكل</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!isEditing && (
+                <div className="space-y-4">
                 {order.items.map((item) => (
                   <div key={item.id} className="flex items-center space-x-4 space-x-reverse border-b border-gray-200 pb-4 last:border-0 last:pb-0">
                     {getOrderItemProductLink(item) ? (
@@ -340,13 +697,32 @@ const AdminOrderView = () => {
                     </div>
                   </div>
                 ))}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Customer Information */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">معلومات العميل</h2>
-              <div className="space-y-3">
+              {isEditing && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                  <input className="border rounded-lg px-3 py-2" placeholder="اسم العميل" value={editData.customer_name} onChange={(e) => setEditData({ ...editData, customer_name: e.target.value })} />
+                  <input className="border rounded-lg px-3 py-2" placeholder="البريد الإلكتروني" type="email" value={editData.customer_email} onChange={(e) => setEditData({ ...editData, customer_email: e.target.value })} />
+                  <input className="border rounded-lg px-3 py-2" placeholder="رقم الجوال" value={editData.customer_phone} onChange={(e) => setEditData({ ...editData, customer_phone: e.target.value })} />
+                  <select className="border rounded-lg px-3 py-2" value={editData.customer_city} onChange={(e) => setEditData({ ...editData, customer_city: e.target.value })}>
+                    <option value="">اختر المدينة</option>
+                    {cities.map((city) => (
+                      <option key={city.id} value={city.name}>{city.name}</option>
+                    ))}
+                  </select>
+                  <input className="border rounded-lg px-3 py-2" placeholder="المنطقة / الحي" value={editData.customer_district} onChange={(e) => setEditData({ ...editData, customer_district: e.target.value })} />
+                  <input className="border rounded-lg px-3 py-2" placeholder="الشارع" value={editData.customer_street} onChange={(e) => setEditData({ ...editData, customer_street: e.target.value })} />
+                  <input className="border rounded-lg px-3 py-2" placeholder="رقم المبنى" value={editData.customer_building} onChange={(e) => setEditData({ ...editData, customer_building: e.target.value })} />
+                  <textarea className="border rounded-lg px-3 py-2 md:col-span-2" placeholder="معلومات إضافية" value={editData.customer_additional_info} onChange={(e) => setEditData({ ...editData, customer_additional_info: e.target.value })} />
+                </div>
+              )}
+              {!isEditing && (
+                <div className="space-y-3">
                 <div className="flex items-center space-x-3 space-x-reverse">
                   <User className="w-5 h-5 text-gray-400" />
                   <div>
@@ -382,7 +758,8 @@ const AdminOrderView = () => {
                     )}
                   </div>
                 </div>
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -409,6 +786,60 @@ const AdminOrderView = () => {
                       <option value="cancelled">ملغي</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      طريقة الدفع
+                    </label>
+                    <select
+                      value={editData.payment_method}
+                      onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="cod">الدفع عند الاستلام</option>
+                      <option value="bank_transfer">تحويل بنكي</option>
+                      <option value="credit_card">بطاقة ائتمانية</option>
+                      <option value="online">دفع إلكتروني</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        نوع الخصم
+                      </label>
+                      <select
+                        value={editData.discount_type}
+                        onChange={(e) => setEditData({ ...editData, discount_type: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="">بدون خصم</option>
+                        <option value="fixed">قيمة ثابتة</option>
+                        <option value="percentage">نسبة مئوية</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        قيمة الخصم
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={editData.discount_value}
+                        onChange={(e) => setEditData({ ...editData, discount_value: e.target.value })}
+                        disabled={!editData.discount_type}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100"
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={editData.force_free_shipping}
+                      onChange={(e) => setEditData({ ...editData, force_free_shipping: e.target.checked })}
+                      className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    شحن مجاني لهذا الطلب
+                  </label>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       حالة الدفع
@@ -446,11 +877,14 @@ const AdminOrderView = () => {
                     <button
                       onClick={() => {
                         setIsEditing(false);
-                        setEditData({
-                          order_status: order.order_status,
-                          payment_status: order.payment_status,
-                          notes: order.notes || ""
-                        });
+                        applyOrderToEditState(order);
+                        setProductSearch("");
+                        setProductResults([]);
+                        mapOrderItemsForEdit(order)
+                          .then((items) => setEditableItems(items))
+                          .catch(() => {
+                            // Keep current rows if reset hydration fails
+                          });
                       }}
                       className="flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
                     >
@@ -533,13 +967,13 @@ const AdminOrderView = () => {
                 <div className="flex justify-between">
                   <span className="text-gray-600">تكلفة الشحن</span>
                   <span className="font-medium text-gray-900">
-                    {order.shipping_cost.toLocaleString()} شيكل
+                    {(isEditing ? shippingCost : order.shipping_cost).toLocaleString()} شيكل
                   </span>
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
                   <span className="text-lg font-semibold text-gray-900">الإجمالي</span>
                   <span className="text-lg font-bold text-gray-900">
-                    {order.total.toLocaleString()} شيكل
+                    {(isEditing ? grandTotal : order.total).toLocaleString()} شيكل
                   </span>
                 </div>
               </div>

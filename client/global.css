@@ -286,10 +286,10 @@
 
   @media (max-width: 767px) {
     .hero-slide-mobile-fit {
-      background-size: contain !important;
+      background-size: 100% 100% !important;
       background-position: center top !important;
       background-color: transparent;
-      aspect-ratio: 16 / 5;
+      aspect-ratio: 16 / 5.5;
       min-height: 0 !important;
       padding-bottom: 0 !important;
     }

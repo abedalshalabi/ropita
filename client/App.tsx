@@ -15,6 +15,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminProducts from "./pages/AdminProducts";
 import AdminOrders from "./pages/AdminOrders";
 import AdminOrderView from "./pages/AdminOrderView";
+import AdminOrderCreate from "./pages/AdminOrderCreate";
 import AdminUsers from "./pages/AdminUsers";
 import AdminCategories from "./pages/AdminCategories";
 import AdminBrands from "./pages/AdminBrands";
@@ -230,6 +231,7 @@ function App() {
               <Route path="/admin/products/:id" element={<AdminProductView />} />
               <Route path="/admin/products/:id/edit" element={<AdminProductEdit />} />
               <Route path="/admin/orders" element={<AdminOrders />} />
+              <Route path="/admin/orders/create" element={<AdminOrderCreate />} />
               <Route path="/admin/orders/:id" element={<AdminOrderView />} />
               <Route path="/admin/users" element={<AdminUsers />} />
               <Route path="/admin/users/create" element={<AdminUserCreate />} />

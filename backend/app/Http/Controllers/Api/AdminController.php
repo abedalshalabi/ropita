@@ -7,6 +7,9 @@ use App\Models\Order;
 use App\Models\Brand;
 use App\Models\Review;
 use App\Models\Product;
+use App\Models\ProductVariant;
+use App\Models\City;
+use App\Mail\OrderPlacedMail;
 use App\Http\Resources\OrderResource;
 use App\Http\Resources\BrandResource;
 use App\Http\Resources\ReviewResource;
@@ -16,6 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 
@@ -59,6 +63,261 @@ class AdminController extends Controller
     public function destroy(string $id)
     {
         //
+    }
+
+    /**
+     * Admin: Create order from dashboard
+     */
+    public function createOrder(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'customer_email' => 'nullable|email|max:255',
+            'customer_phone' => ['required', 'string', 'regex:/^05\d{8}$/'],
+            'customer_city' => 'required|string|max:100',
+            'customer_district' => 'required|string|max:100',
+            'customer_street' => 'nullable|string|max:255',
+            'customer_building' => 'nullable|string|max:100',
+            'customer_additional_info' => 'nullable|string',
+            'payment_method' => 'required|in:cod,credit_card,paypal,bank_transfer,online',
+            'payment_status' => 'nullable|in:pending,paid,failed,refunded',
+            'order_status' => 'nullable|in:pending,processing,shipped,delivered,cancelled',
+            'notes' => 'nullable|string',
+
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.product_variant_id' => 'nullable|integer|exists:product_variants,id',
+            'items.*.quantity' => 'required|integer|min:1',
+
+            'discount_type' => 'nullable|in:fixed,percentage',
+            'discount_value' => 'nullable|numeric|min:0',
+            'force_free_shipping' => 'nullable|boolean',
+            'send_customer_email' => 'nullable|boolean',
+        ]);
+
+        $city = City::where('name', $validated['customer_city'])
+            ->where('is_active', true)
+            ->first();
+
+        if (!$city) {
+            return response()->json([
+                'message' => 'المدينة المختارة غير صالحة أو غير متاحة حالياً',
+                'errors' => [
+                    'customer_city' => ['يرجى اختيار مدينة صالحة لحساب الشحن'],
+                ],
+            ], 422);
+        }
+
+        $discountType = $validated['discount_type'] ?? null;
+        $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
+        $forceFreeShipping = (bool) ($validated['force_free_shipping'] ?? false);
+        $sendCustomerEmail = (bool) ($validated['send_customer_email'] ?? false);
+
+        DB::beginTransaction();
+
+        try {
+            $preparedItems = [];
+            $subtotal = 0.0;
+
+            foreach ($validated['items'] as $itemData) {
+                $product = Product::find($itemData['product_id']);
+                if (!$product || !$product->is_active) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "المنتج غير متاح: {$itemData['product_id']}",
+                    ], 400);
+                }
+
+                $variant = null;
+                $variantId = $itemData['product_variant_id'] ?? null;
+
+                if ($variantId) {
+                    $variant = ProductVariant::where('id', $variantId)
+                        ->where('product_id', $product->id)
+                        ->first();
+
+                    if (!$variant) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "فاريانت غير صالح للمنتج: {$product->name}",
+                        ], 400);
+                    }
+                } elseif ($product->variants()->exists()) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "يرجى اختيار قياس/فاريانت للمنتج: {$product->name}",
+                    ], 400);
+                }
+
+                $qty = (int) $itemData['quantity'];
+
+                $isAvailable = false;
+                if ($variant) {
+                    $isAvailable = $product->stock_status === 'in_stock' || $variant->stock_quantity >= $qty;
+                } else {
+                    if ($product->stock_status === 'out_of_stock') {
+                        $isAvailable = false;
+                    } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                        $isAvailable = true;
+                    } elseif ($product->stock_status === 'stock_based') {
+                        $isAvailable = $product->stock_quantity >= $qty;
+                    }
+                }
+
+                if (!$isAvailable) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "عذراً، المنتج «{$product->name}» غير متوفر بالكمية المطلوبة",
+                    ], 400);
+                }
+
+                $basePrice = $variant ? (float) $variant->price : (float) $product->price;
+                $productDiscountPct = (float) ($product->discount_percentage ?? 0);
+                $unitPrice = $productDiscountPct > 0
+                    ? round($basePrice * (1 - $productDiscountPct / 100), 2)
+                    : $basePrice;
+
+                $lineTotal = $unitPrice * $qty;
+                $lineDiscountAmount = max(0, $basePrice - $unitPrice) * $qty;
+                $subtotal += $lineTotal;
+
+                $preparedItems[] = [
+                    'product' => $product,
+                    'variant' => $variant,
+                    'quantity' => $qty,
+                    'price' => $unitPrice,
+                    'original_price' => $basePrice,
+                    'discount_amount' => $lineDiscountAmount,
+                    'total' => $lineTotal,
+                    'variant_values' => $variant?->variant_values,
+                ];
+            }
+
+            $orderDiscountAmount = 0.0;
+            if ($discountType && $discountValue > 0) {
+                if ($discountType === 'percentage') {
+                    $orderDiscountAmount = round($subtotal * min(100, $discountValue) / 100, 2);
+                } else {
+                    $orderDiscountAmount = min($subtotal, $discountValue);
+                }
+            }
+
+            $subtotalAfterDiscount = max(0, $subtotal - $orderDiscountAmount);
+
+            $shippingCost = (float) $city->shipping_cost;
+            if ($forceFreeShipping) {
+                $shippingCost = 0.0;
+            } elseif ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotalAfterDiscount >= (float) $city->free_shipping_threshold) {
+                $shippingCost = 0.0;
+            }
+
+            $total = $subtotalAfterDiscount + $shippingCost;
+
+            $systemNotes = [];
+            if ($orderDiscountAmount > 0) {
+                if ($discountType === 'percentage') {
+                    $systemNotes[] = "خصم إداري ({$discountValue}%): -" . number_format($orderDiscountAmount, 2) . " شيكل";
+                } else {
+                    $systemNotes[] = "خصم إداري ثابت: -" . number_format($orderDiscountAmount, 2) . " شيكل";
+                }
+            }
+            if ($forceFreeShipping) {
+                $systemNotes[] = "تم تفعيل التوصيل المجاني من الإدارة.";
+            }
+
+            $notes = trim((string) ($validated['notes'] ?? ''));
+            if (!empty($systemNotes)) {
+                $notes = trim($notes . "\n" . implode("\n", $systemNotes));
+            }
+
+            $order = Order::create([
+                'user_id' => null,
+                'customer_name' => $validated['customer_name'],
+                'customer_email' => $validated['customer_email'] ?? null,
+                'customer_phone' => $validated['customer_phone'],
+                'customer_city' => $validated['customer_city'],
+                'customer_district' => $validated['customer_district'],
+                'customer_street' => $validated['customer_street'] ?? null,
+                'customer_building' => $validated['customer_building'] ?? null,
+                'customer_additional_info' => $validated['customer_additional_info'] ?? null,
+                'payment_method' => $validated['payment_method'],
+                'payment_status' => $validated['payment_status'] ?? 'pending',
+                'order_status' => $validated['order_status'] ?? 'pending',
+                'notes' => $notes !== '' ? $notes : null,
+                'subtotal' => $subtotal,
+                'shipping_cost' => $shippingCost,
+                'total' => $total,
+            ]);
+
+            foreach ($preparedItems as $item) {
+                $order->items()->create([
+                    'product_id' => $item['product']->id,
+                    'product_variant_id' => $item['variant']?->id,
+                    'product_name' => $item['product']->name,
+                    'product_sku' => $item['variant'] ? $item['variant']->sku : $item['product']->sku,
+                    'variant_values' => $item['variant_values'],
+                    'quantity' => $item['quantity'],
+                    'price' => $item['price'],
+                    'original_price' => $item['original_price'],
+                    'discount_amount' => $item['discount_amount'],
+                    'total' => $item['total'],
+                ]);
+
+                if ($item['variant']) {
+                    $item['variant']->decrement('stock_quantity', $item['quantity']);
+                } else {
+                    if (!$item['product']->variants()->exists()) {
+                        $item['product']->decrement('stock_quantity', $item['quantity']);
+                    }
+                }
+
+                $item['product']->increment('sales_count', $item['quantity']);
+
+                if ($item['product']->stock_status === 'stock_based') {
+                    $item['product']->refresh();
+                    $item['product']->in_stock = $item['product']->stock_quantity > 0;
+                    $item['product']->save();
+                }
+            }
+
+            DB::commit();
+
+            if ($sendCustomerEmail && !empty($order->customer_email) && filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
+                try {
+                    Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
+                } catch (\Throwable $mailException) {
+                    Log::error('Failed to send customer order email from admin create order', [
+                        'order_id' => $order->id,
+                        'customer_email' => $order->customer_email,
+                        'error' => $mailException->getMessage(),
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'message' => 'تم إنشاء الطلب بنجاح',
+                'data' => new OrderResource($order->load(['items.product'])),
+                'meta' => [
+                    'discount_type' => $discountType,
+                    'discount_value' => $discountValue,
+                    'discount_amount' => $orderDiscountAmount,
+                    'subtotal_after_discount' => $subtotalAfterDiscount,
+                    'force_free_shipping' => $forceFreeShipping,
+                ],
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Admin order creation failed', [
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+            ]);
+
+            return response()->json([
+                'message' => 'فشل إنشاء الطلب',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -123,11 +382,248 @@ class AdminController extends Controller
         $validated = $request->validate([
             'order_status' => 'sometimes|string|in:pending,processing,shipped,delivered,cancelled',
             'payment_status' => 'sometimes|string|in:pending,paid,failed,refunded',
+            'payment_method' => 'sometimes|in:cod,credit_card,paypal,bank_transfer,online',
+            'customer_name' => 'sometimes|string|max:255',
+            'customer_email' => 'nullable|email|max:255',
+            'customer_phone' => ['sometimes', 'string', 'regex:/^05\d{8}$/'],
+            'customer_city' => 'sometimes|string|max:100',
+            'customer_district' => 'sometimes|string|max:100',
+            'customer_street' => 'nullable|string|max:255',
+            'customer_building' => 'nullable|string|max:100',
+            'customer_additional_info' => 'nullable|string',
+            'items' => 'sometimes|array|min:1',
+            'items.*.product_id' => 'required_with:items|integer|exists:products,id',
+            'items.*.product_variant_id' => 'nullable|integer|exists:product_variants,id',
+            'items.*.quantity' => 'required_with:items|integer|min:1',
+            'discount_type' => 'nullable|in:fixed,percentage',
+            'discount_value' => 'nullable|numeric|min:0',
+            'force_free_shipping' => 'nullable|boolean',
             'notes' => 'nullable|string',
         ]);
 
         $oldStatus = $order->order_status;
         $newStatus = $validated['order_status'] ?? $oldStatus;
+
+        $hasDeepUpdate = isset($validated['items'])
+            || isset($validated['customer_name'])
+            || array_key_exists('customer_email', $validated)
+            || isset($validated['customer_phone'])
+            || isset($validated['customer_city'])
+            || isset($validated['customer_district'])
+            || array_key_exists('customer_street', $validated)
+            || array_key_exists('customer_building', $validated)
+            || array_key_exists('customer_additional_info', $validated)
+            || isset($validated['payment_method'])
+            || isset($validated['discount_type'])
+            || isset($validated['discount_value'])
+            || array_key_exists('force_free_shipping', $validated);
+
+        if ($hasDeepUpdate) {
+            DB::beginTransaction();
+            try {
+                if ($oldStatus !== 'cancelled') {
+                    $this->restoreOrderStock($order);
+                }
+
+                $cityName = $validated['customer_city'] ?? $order->customer_city;
+                $city = City::where('name', $cityName)
+                    ->where('is_active', true)
+                    ->first();
+
+                if (!$city) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Selected city is invalid or inactive',
+                        'errors' => [
+                            'customer_city' => ['Please select a valid city'],
+                        ],
+                    ], 422);
+                }
+
+                $sourceItems = isset($validated['items'])
+                    ? $validated['items']
+                    : $order->items->map(fn ($item) => [
+                        'product_id' => $item->product_id,
+                        'product_variant_id' => $item->product_variant_id,
+                        'quantity' => $item->quantity,
+                    ])->toArray();
+
+                $preparedItems = [];
+                $subtotal = 0.0;
+                foreach ($sourceItems as $itemData) {
+                    $product = Product::find($itemData['product_id']);
+                    if (!$product || !$product->is_active) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Product not available: {$itemData['product_id']}",
+                        ], 400);
+                    }
+
+                    $variant = null;
+                    $variantId = $itemData['product_variant_id'] ?? null;
+                    if ($variantId) {
+                        $variant = ProductVariant::where('id', $variantId)
+                            ->where('product_id', $product->id)
+                            ->first();
+                        if (!$variant) {
+                            DB::rollBack();
+                            return response()->json([
+                                'message' => "Invalid variant for product: {$product->name}",
+                            ], 400);
+                        }
+                    } elseif ($product->variants()->exists()) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Please select a variant for: {$product->name}",
+                        ], 400);
+                    }
+
+                    $qty = (int) $itemData['quantity'];
+                    $isAvailable = false;
+                    if ($variant) {
+                        $isAvailable = $product->stock_status === 'in_stock' || $variant->stock_quantity >= $qty;
+                    } else {
+                        if ($product->stock_status === 'out_of_stock') {
+                            $isAvailable = false;
+                        } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                            $isAvailable = true;
+                        } elseif ($product->stock_status === 'stock_based') {
+                            $isAvailable = $product->stock_quantity >= $qty;
+                        }
+                    }
+
+                    if ($newStatus !== 'cancelled' && !$isAvailable) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Insufficient stock for product: {$product->name}",
+                        ], 400);
+                    }
+
+                    $basePrice = $variant ? (float) $variant->price : (float) $product->price;
+                    $productDiscountPct = (float) ($product->discount_percentage ?? 0);
+                    $unitPrice = $productDiscountPct > 0
+                        ? round($basePrice * (1 - $productDiscountPct / 100), 2)
+                        : $basePrice;
+                    $lineTotal = $unitPrice * $qty;
+                    $lineDiscountAmount = max(0, $basePrice - $unitPrice) * $qty;
+                    $subtotal += $lineTotal;
+
+                    $preparedItems[] = [
+                        'product' => $product,
+                        'variant' => $variant,
+                        'quantity' => $qty,
+                        'price' => $unitPrice,
+                        'original_price' => $basePrice,
+                        'discount_amount' => $lineDiscountAmount,
+                        'total' => $lineTotal,
+                        'variant_values' => $variant?->variant_values,
+                    ];
+                }
+
+                $discountType = $validated['discount_type'] ?? null;
+                $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
+                $orderDiscountAmount = 0.0;
+                if ($discountType && $discountValue > 0) {
+                    if ($discountType === 'percentage') {
+                        $orderDiscountAmount = round($subtotal * min(100, $discountValue) / 100, 2);
+                    } else {
+                        $orderDiscountAmount = min($subtotal, $discountValue);
+                    }
+                }
+
+                $subtotalAfterDiscount = max(0, $subtotal - $orderDiscountAmount);
+                $forceFreeShipping = (bool) ($validated['force_free_shipping'] ?? false);
+                $shippingCost = (float) $city->shipping_cost;
+                if ($forceFreeShipping) {
+                    $shippingCost = 0.0;
+                } elseif ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotalAfterDiscount >= (float) $city->free_shipping_threshold) {
+                    $shippingCost = 0.0;
+                }
+                $total = $subtotalAfterDiscount + $shippingCost;
+
+                $systemNotes = [];
+                if ($orderDiscountAmount > 0) {
+                    $systemNotes[] = $discountType === 'percentage'
+                        ? "Admin discount ({$discountValue}%): -" . number_format($orderDiscountAmount, 2) . " ILS"
+                        : "Admin fixed discount: -" . number_format($orderDiscountAmount, 2) . " ILS";
+                }
+                if ($forceFreeShipping) {
+                    $systemNotes[] = "Free shipping enabled by admin.";
+                }
+                $notes = trim((string) ($validated['notes'] ?? $order->notes ?? ''));
+                if (!empty($systemNotes)) {
+                    $notes = trim($notes . "\n" . implode("\n", $systemNotes));
+                }
+
+                $order->update([
+                    'customer_name' => $validated['customer_name'] ?? $order->customer_name,
+                    'customer_email' => array_key_exists('customer_email', $validated) ? $validated['customer_email'] : $order->customer_email,
+                    'customer_phone' => $validated['customer_phone'] ?? $order->customer_phone,
+                    'customer_city' => $validated['customer_city'] ?? $order->customer_city,
+                    'customer_district' => $validated['customer_district'] ?? $order->customer_district,
+                    'customer_street' => array_key_exists('customer_street', $validated) ? $validated['customer_street'] : $order->customer_street,
+                    'customer_building' => array_key_exists('customer_building', $validated) ? $validated['customer_building'] : $order->customer_building,
+                    'customer_additional_info' => array_key_exists('customer_additional_info', $validated) ? $validated['customer_additional_info'] : $order->customer_additional_info,
+                    'payment_method' => $validated['payment_method'] ?? $order->payment_method,
+                    'payment_status' => $validated['payment_status'] ?? $order->payment_status,
+                    'order_status' => $newStatus,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'subtotal' => $subtotal,
+                    'shipping_cost' => $shippingCost,
+                    'total' => $total,
+                ]);
+
+                $order->items()->delete();
+                foreach ($preparedItems as $item) {
+                    $order->items()->create([
+                        'product_id' => $item['product']->id,
+                        'product_variant_id' => $item['variant']?->id,
+                        'product_name' => $item['product']->name,
+                        'product_sku' => $item['variant'] ? $item['variant']->sku : $item['product']->sku,
+                        'variant_values' => $item['variant_values'],
+                        'quantity' => $item['quantity'],
+                        'price' => $item['price'],
+                        'original_price' => $item['original_price'],
+                        'discount_amount' => $item['discount_amount'],
+                        'total' => $item['total'],
+                    ]);
+
+                    if ($newStatus !== 'cancelled') {
+                        if ($item['variant']) {
+                            $item['variant']->decrement('stock_quantity', $item['quantity']);
+                        } else {
+                            if (!$item['product']->variants()->exists()) {
+                                $item['product']->decrement('stock_quantity', $item['quantity']);
+                            }
+                        }
+
+                        $item['product']->increment('sales_count', $item['quantity']);
+                        if ($item['product']->stock_status === 'stock_based') {
+                            $item['product']->refresh();
+                            $item['product']->in_stock = $item['product']->stock_quantity > 0;
+                            $item['product']->save();
+                        }
+                    }
+                }
+
+                DB::commit();
+                return response()->json([
+                    'message' => 'Order updated successfully',
+                    'data' => new OrderResource($order->load(['items.product']))
+                ]);
+            } catch (\Throwable $e) {
+                DB::rollBack();
+                Log::error('Error updating order deeply: ' . $e->getMessage(), [
+                    'order_id' => $order->id,
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+                return response()->json([
+                    'message' => 'Failed to update order',
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+        }
 
         // If order is being cancelled and wasn't cancelled before, restore stock
         if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {

@@ -174,6 +174,14 @@
                                             <div style="font-size:12px;color:#9ca3af;text-decoration:line-through;margin-bottom:4px;">قبل الخصم: {{ number_format($item['original_price'], 2) }} شيكل</div>
                                         @endif
                                         <div style="font-size:16px;color:#7c6d47;font-weight:700;">الإجمالي: {{ number_format($item['total'], 2) }} شيكل</div>
+                                        @if(($item['line_discount'] ?? 0) > 0)
+                                            <div style="font-size:13px;color:#b91c1c;margin-bottom:6px;">
+                                                خصم المنتج: -{{ number_format((float) $item['line_discount'], 2) }} شيكل
+                                                @if(($item['discount_percentage'] ?? 0) > 0)
+                                                    ({{ rtrim(rtrim(number_format((float) $item['discount_percentage'], 2), '0'), '.') }}%)
+                                                @endif
+                                            </div>
+                                        @endif
                                         @if($item['product_url'])
                                             <div style="margin-top:10px;">
                                                 <a href="{{ $item['product_url'] }}" target="_blank" style="display:inline-block;color:#7c6d47;text-decoration:none;font-weight:700;">عرض المنتج</a>
@@ -197,6 +205,30 @@
                             {{ (float) $order->shipping_cost === 0.0 ? 'مجاني' : number_format((float) $order->shipping_cost, 2) . ' شيكل' }}
                         </span>
                     </div>
+                    @if(($discountSummary['items_discount_total'] ?? 0) > 0)
+                        <div style="padding:10px 0;border-bottom:1px solid #efe7db;">
+                            <span style="font-weight:700;color:#b91c1c;">خصم المنتجات:</span>
+                            <span style="float:left;color:#b91c1c;">
+                                -{{ number_format((float) $discountSummary['items_discount_total'], 2) }} شيكل
+                            </span>
+                        </div>
+                    @endif
+                    @if(($discountSummary['order_level_discount'] ?? 0) > 0)
+                        <div style="padding:10px 0;border-bottom:1px solid #efe7db;">
+                            <span style="font-weight:700;color:#b91c1c;">خصم إضافي على الطلب:</span>
+                            <span style="float:left;color:#b91c1c;">
+                                -{{ number_format((float) $discountSummary['order_level_discount'], 2) }} شيكل
+                            </span>
+                        </div>
+                    @endif
+                    @if(($discountSummary['total_discount'] ?? 0) > 0)
+                        <div style="padding:10px 0;border-bottom:1px solid #efe7db;">
+                            <span style="font-weight:700;color:#b91c1c;">إجمالي الخصومات:</span>
+                            <span style="float:left;color:#b91c1c;">
+                                -{{ number_format((float) $discountSummary['total_discount'], 2) }} شيكل
+                            </span>
+                        </div>
+                    @endif
                     <div style="padding:14px 0 0;font-size:22px;font-weight:700;">
                         <span>المجموع الكلي:</span>
                         <span style="float:left;color:#7c6d47;">{{ number_format((float) $order->total, 2) }} شيكل</span>

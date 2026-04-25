@@ -436,6 +436,11 @@ export const adminOrdersAPI = {
     const response = await adminApi.get('/v1/admin/orders', { params: filters });
     return response.data;
   },
+
+  async createOrder(orderData: any) {
+    const response = await adminApi.post('/v1/admin/orders', orderData);
+    return response.data;
+  },
   
   async getOrder(id: string) {
     const response = await adminApi.get(`/v1/admin/orders/${id}`);

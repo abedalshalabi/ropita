@@ -228,6 +228,7 @@ Route::prefix('v1')->group(function () {
 
               // Order management
               Route::get('/admin/orders', [AdminController::class, 'orders']);
+              Route::post('/admin/orders', [AdminController::class, 'createOrder']);
               Route::get('/admin/orders/new-count', [AdminController::class, 'newOrdersCount']);
               Route::get('/admin/orders/{order}', [AdminController::class, 'showOrder']);
               Route::put('/admin/orders/{order}', [AdminController::class, 'updateOrder']);
