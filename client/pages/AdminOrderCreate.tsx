@@ -77,7 +77,6 @@ const AdminOrderCreate = () => {
   const [formData, setFormData] = useState({
     customer_name: "",
     customer_email: "",
-    send_customer_email: false,
     customer_phone: "",
     customer_city: "",
     customer_district: "",
@@ -274,25 +273,24 @@ const AdminOrderCreate = () => {
     [items]
   );
 
-  const discountAmount = useMemo(() => {
-    const value = Number(formData.discount_value || 0);
-    if (!formData.discount_type || value <= 0) return 0;
-    if (formData.discount_type === "percentage") {
-      return Number((subtotal * Math.min(100, value) / 100).toFixed(2));
-    }
-    return Math.min(subtotal, value);
-  }, [formData.discount_type, formData.discount_value, subtotal]);
-
-  const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
   const shippingCost = useMemo(() => {
     if (formData.force_free_shipping) return 0;
     const baseShipping = Number(selectedCity?.shipping_cost || 0);
     const threshold = Number(selectedCity?.free_shipping_threshold || 0);
-    if (threshold > 0 && subtotalAfterDiscount >= threshold) return 0;
+    if (threshold > 0 && subtotal >= threshold) return 0;
     return baseShipping;
-  }, [formData.force_free_shipping, selectedCity, subtotalAfterDiscount]);
+  }, [selectedCity, subtotal, formData.force_free_shipping]);
 
-  const grandTotal = subtotalAfterDiscount + shippingCost;
+  const manualDiscountAmount = useMemo(() => {
+    const rawValue = Number(formData.discount_value || 0);
+    const value = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
+    if (!formData.discount_type || value <= 0) return 0;
+    if (formData.discount_type === "fixed") return Math.min(subtotal, value);
+    if (formData.discount_type === "percentage") return Math.min(subtotal, subtotal * (Math.min(100, value) / 100));
+    return 0;
+  }, [formData.discount_type, formData.discount_value, subtotal]);
+
+  const grandTotal = Math.max(0, subtotal - manualDiscountAmount + shippingCost);
 
   const addProductToOrder = async (productId: number) => {
     try {
@@ -397,7 +395,6 @@ const AdminOrderCreate = () => {
       const payload = {
         customer_name: formData.customer_name,
         customer_email: formData.customer_email || null,
-        send_customer_email: !!(formData.customer_email && formData.send_customer_email),
         customer_phone: formData.customer_phone,
         customer_city: formData.customer_city,
         customer_district: formData.customer_district,
@@ -409,8 +406,8 @@ const AdminOrderCreate = () => {
         order_status: formData.order_status,
         notes: formData.notes || null,
         discount_type: formData.discount_type || null,
-        discount_value: formData.discount_value ? Number(formData.discount_value) : null,
-        force_free_shipping: formData.force_free_shipping,
+        discount_value: formData.discount_type ? Number(formData.discount_value || 0) : 0,
+        force_free_shipping: !!formData.force_free_shipping,
         items: items.map((line) => ({
           product_id: line.product.id,
           product_variant_id: line.selectedVariantId || null,
@@ -478,20 +475,9 @@ const AdminOrderCreate = () => {
                       setFormData((p) => ({
                         ...p,
                         customer_email: e.target.value,
-                        send_customer_email: e.target.value ? p.send_customer_email : false,
                       }))
                     }
                   />
-                  {formData.customer_email.trim() !== "" && (
-                    <label className="flex items-center gap-2 text-xs text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={formData.send_customer_email}
-                        onChange={(e) => setFormData((p) => ({ ...p, send_customer_email: e.target.checked }))}
-                      />
-                      إرسال إيميل تأكيد للعميل
-                    </label>
-                  )}
                 </div>
                 <input className="border rounded-lg px-3 py-2" placeholder="رقم الجوال (05XXXXXXXX)" required value={formData.customer_phone} onChange={(e) => setFormData((p) => ({ ...p, customer_phone: e.target.value }))} />
                 <select className="border rounded-lg px-3 py-2" required value={formData.customer_city} onChange={(e) => setFormData((p) => ({ ...p, customer_city: e.target.value }))}>
@@ -727,21 +713,58 @@ const AdminOrderCreate = () => {
                   <option value="cancelled">ملغي</option>
                 </select>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <select className="border rounded-lg px-3 py-2" value={formData.discount_type} onChange={(e) => setFormData((p) => ({ ...p, discount_type: e.target.value }))}>
-                    <option value="">بدون خصم</option>
-                    <option value="fixed">خصم ثابت</option>
-                    <option value="percentage">خصم نسبة %</option>
-                  </select>
-                  <input className="border rounded-lg px-3 py-2" type="number" min={0} step="0.01" placeholder="قيمة الخصم" value={formData.discount_value} onChange={(e) => setFormData((p) => ({ ...p, discount_value: e.target.value }))} />
-                </div>
-
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={formData.force_free_shipping} onChange={(e) => setFormData((p) => ({ ...p, force_free_shipping: e.target.checked }))} />
-                  تفعيل توصيل مجاني لهذا الطلب
-                </label>
-
                 <textarea className="w-full border rounded-lg px-3 py-2" rows={4} placeholder="ملاحظات داخلية / ملاحظات الطلب" value={formData.notes} onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))} />
+                <div className="border-t pt-3 space-y-3">
+                  <select
+                    className="w-full border rounded-lg px-3 py-2"
+                    value={formData.discount_type}
+                    onChange={(e) =>
+                      setFormData((p) => ({
+                        ...p,
+                        discount_type: e.target.value,
+                        discount_value: e.target.value ? p.discount_value : "",
+                      }))
+                    }
+                  >
+                    <option value="">بدون خصم يدوي</option>
+                    <option value="fixed">خصم بقيمة ثابتة</option>
+                    <option value="percentage">خصم بنسبة مئوية</option>
+                  </select>
+                  <input
+                    className="w-full border rounded-lg px-3 py-2 disabled:bg-gray-100"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder={formData.discount_type === "percentage" ? "قيمة الخصم (%)" : "قيمة الخصم (شيكل)"}
+                    value={formData.discount_value}
+                    disabled={!formData.discount_type}
+                    onChange={(e) => setFormData((p) => ({ ...p, discount_value: e.target.value }))}
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={formData.force_free_shipping}
+                      onChange={(e) => setFormData((p) => ({ ...p, force_free_shipping: e.target.checked }))}
+                    />
+                    تحويل الشحن إلى مجاني
+                  </label>
+                  {(manualDiscountAmount > 0 || formData.force_free_shipping) && (
+                    <button
+                      type="button"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm hover:bg-gray-50"
+                      onClick={() =>
+                        setFormData((p) => ({
+                          ...p,
+                          discount_type: "",
+                          discount_value: "",
+                          force_free_shipping: false,
+                        }))
+                      }
+                    >
+                      التراجع عن الخصم/الشحن المجاني
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -749,10 +772,22 @@ const AdminOrderCreate = () => {
               <h2 className="text-lg font-semibold text-gray-900 mb-4">ملخص الفاتورة</h2>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span>المجموع الفرعي</span><span>{subtotal.toLocaleString()} شيكل</span></div>
-                {discountAmount > 0 && <div className="flex justify-between text-red-600"><span>الخصم</span><span>- {discountAmount.toLocaleString()} شيكل</span></div>}
-                <div className="flex justify-between"><span>بعد الخصم</span><span>{subtotalAfterDiscount.toLocaleString()} شيكل</span></div>
+                {manualDiscountAmount > 0 && (
+                  <div className="flex justify-between text-red-600">
+                    <span>خصم يدوي على الفاتورة</span>
+                    <span>-{manualDiscountAmount.toLocaleString()} شيكل</span>
+                  </div>
+                )}
                 <div className="flex justify-between"><span>الشحن</span><span>{shippingCost.toLocaleString()} شيكل</span></div>
                 <div className="border-t pt-2 mt-2 flex justify-between font-bold text-lg"><span>الإجمالي</span><span>{grandTotal.toLocaleString()} شيكل</span></div>
+                {formData.notes.trim() !== "" && (
+                  <div className="border-t pt-2 mt-2">
+                    <div className="text-gray-600 mb-1">ملاحظات الطلب</div>
+                    <div className="text-gray-900 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 whitespace-pre-wrap">
+                      {formData.notes}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

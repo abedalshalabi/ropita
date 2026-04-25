@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Truck,
   CreditCard,
+  Mail,
   MoreHorizontal,
   Trash2
 } from "lucide-react";
@@ -56,6 +57,7 @@ const AdminOrders = () => {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [sendingEmailOrderId, setSendingEmailOrderId] = useState<number | null>(null);
   const navigate = useNavigate();
 
   const statusOptions = [
@@ -150,6 +152,38 @@ const AdminOrders = () => {
           confirmButtonText: 'حسناً'
         });
       }
+    }
+  };
+
+  const handleSendCustomerEmail = async (order: Order) => {
+    if (!order.customer_email || !order.customer_email.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "تنبيه",
+        text: "لا يوجد بريد إلكتروني للعميل في هذه الطلبية",
+        confirmButtonText: "حسنًا",
+      });
+      return;
+    }
+
+    try {
+      setSendingEmailOrderId(order.id);
+      const response = await adminOrdersAPI.sendCustomerEmail(order.id.toString());
+      Swal.fire({
+        icon: "success",
+        title: "تم الإرسال",
+        text: response?.message || "تم إرسال إيميل التأكيد للعميل",
+        confirmButtonText: "حسنًا",
+      });
+    } catch (err: any) {
+      Swal.fire({
+        icon: "error",
+        title: "خطأ",
+        text: err?.response?.data?.message || "فشل إرسال الإيميل",
+        confirmButtonText: "حسنًا",
+      });
+    } finally {
+      setSendingEmailOrderId(null);
     }
   };
 
@@ -413,6 +447,14 @@ const AdminOrders = () => {
                             title="عرض/تعديل الطلب"
                           >
                             <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleSendCustomerEmail(order)}
+                            disabled={sendingEmailOrderId === order.id}
+                            className="text-blue-600 hover:text-blue-900 p-2 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                            title="إرسال إيميل تأكيد للعميل"
+                          >
+                            <Mail className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteOrder(order.id, order.order_number)}

@@ -24,6 +24,10 @@ class Order extends Model
         'customer_additional_info',
         'subtotal',
         'shipping_cost',
+        'discount_type',
+        'discount_value',
+        'discount_amount',
+        'force_free_shipping',
         'total',
         'payment_method',
         'payment_status',
@@ -34,6 +38,9 @@ class Order extends Model
     protected $casts = [
         'subtotal' => 'decimal:2',
         'shipping_cost' => 'decimal:2',
+        'discount_value' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'force_free_shipping' => 'boolean',
         'total' => 'decimal:2',
     ];
 

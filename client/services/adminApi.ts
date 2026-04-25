@@ -456,6 +456,11 @@ export const adminOrdersAPI = {
     const response = await adminApi.delete(`/v1/admin/orders/${id}`);
     return response.data;
   },
+
+  async sendCustomerEmail(id: string) {
+    const response = await adminApi.post(`/v1/admin/orders/${id}/send-customer-email`);
+    return response.data;
+  },
   
   async getNewOrdersCount() {
     const response = await adminApi.get('/v1/admin/orders/new-count');

@@ -127,6 +127,13 @@
                     <div><strong>3.</strong> التوصيل: سيصل الطلب إلى العنوان المحدد خلال 2-3 أيام.</div>
                 </div>
 
+                @if(!empty($order->notes))
+                    <div style="background:#ffffff;border:1px solid #eadfce;border-radius:18px;padding:18px;margin-bottom:22px;">
+                        <div style="font-size:17px;font-weight:700;margin-bottom:8px;">ملاحظات الطلب</div>
+                        <div style="font-size:14px;color:#374151;white-space:pre-wrap;line-height:1.7;">{!! nl2br(e($order->notes)) !!}</div>
+                    </div>
+                @endif
+
                 <div style="margin-bottom:22px;">
                     <div style="font-size:20px;font-weight:700;margin-bottom:14px;">عناصر الطلب</div>
 

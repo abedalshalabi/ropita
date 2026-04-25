@@ -231,6 +231,7 @@ Route::prefix('v1')->group(function () {
               Route::post('/admin/orders', [AdminController::class, 'createOrder']);
               Route::get('/admin/orders/new-count', [AdminController::class, 'newOrdersCount']);
               Route::get('/admin/orders/{order}', [AdminController::class, 'showOrder']);
+              Route::post('/admin/orders/{order}/send-customer-email', [AdminController::class, 'sendOrderCustomerEmail']);
               Route::put('/admin/orders/{order}', [AdminController::class, 'updateOrder']);
               Route::delete('/admin/orders/{order}', [AdminController::class, 'deleteOrder']);
 

@@ -83,15 +83,15 @@ class AdminController extends Controller
             'payment_status' => 'nullable|in:pending,paid,failed,refunded',
             'order_status' => 'nullable|in:pending,processing,shipped,delivered,cancelled',
             'notes' => 'nullable|string',
+            'discount_type' => 'nullable|in:fixed,percentage',
+            'discount_value' => 'nullable|numeric|min:0',
+            'force_free_shipping' => 'nullable|boolean',
 
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|integer|exists:products,id',
             'items.*.product_variant_id' => 'nullable|integer|exists:product_variants,id',
             'items.*.quantity' => 'required|integer|min:1',
 
-            'discount_type' => 'nullable|in:fixed,percentage',
-            'discount_value' => 'nullable|numeric|min:0',
-            'force_free_shipping' => 'nullable|boolean',
             'send_customer_email' => 'nullable|boolean',
         ]);
 
@@ -108,9 +108,6 @@ class AdminController extends Controller
             ], 422);
         }
 
-        $discountType = $validated['discount_type'] ?? null;
-        $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
-        $forceFreeShipping = (bool) ($validated['force_free_shipping'] ?? false);
         $sendCustomerEmail = (bool) ($validated['send_customer_email'] ?? false);
 
         DB::beginTransaction();
@@ -155,11 +152,10 @@ class AdminController extends Controller
                 if ($variant) {
                     $isAvailable = $product->stock_status === 'in_stock' || $variant->stock_quantity >= $qty;
                 } else {
-                    if ($product->stock_status === 'out_of_stock') {
-                        $isAvailable = false;
-                    } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                    if ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
                         $isAvailable = true;
-                    } elseif ($product->stock_status === 'stock_based') {
+                    } else {
+                        // For stock-based/out_of_stock states, trust actual quantity.
                         $isAvailable = $product->stock_quantity >= $qty;
                     }
                 }
@@ -193,42 +189,24 @@ class AdminController extends Controller
                 ];
             }
 
-            $orderDiscountAmount = 0.0;
-            if ($discountType && $discountValue > 0) {
-                if ($discountType === 'percentage') {
-                    $orderDiscountAmount = round($subtotal * min(100, $discountValue) / 100, 2);
-                } else {
-                    $orderDiscountAmount = min($subtotal, $discountValue);
-                }
+            $discountType = $validated['discount_type'] ?? null;
+            $discountValue = (float) ($validated['discount_value'] ?? 0);
+            if (!$discountType) {
+                $discountValue = 0;
             }
-
-            $subtotalAfterDiscount = max(0, $subtotal - $orderDiscountAmount);
+            $discountAmount = $this->calculateManualDiscountAmount($subtotal, $discountType, $discountValue);
 
             $shippingCost = (float) $city->shipping_cost;
-            if ($forceFreeShipping) {
+            $forceFreeShipping = (bool) ($validated['force_free_shipping'] ?? false);
+            if (
+                $forceFreeShipping ||
+                ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotal >= (float) $city->free_shipping_threshold)
+            ) {
                 $shippingCost = 0.0;
-            } elseif ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotalAfterDiscount >= (float) $city->free_shipping_threshold) {
-                $shippingCost = 0.0;
             }
 
-            $total = $subtotalAfterDiscount + $shippingCost;
-
-            $systemNotes = [];
-            if ($orderDiscountAmount > 0) {
-                if ($discountType === 'percentage') {
-                    $systemNotes[] = "خصم إداري ({$discountValue}%): -" . number_format($orderDiscountAmount, 2) . " شيكل";
-                } else {
-                    $systemNotes[] = "خصم إداري ثابت: -" . number_format($orderDiscountAmount, 2) . " شيكل";
-                }
-            }
-            if ($forceFreeShipping) {
-                $systemNotes[] = "تم تفعيل التوصيل المجاني من الإدارة.";
-            }
-
+            $total = max(0, $subtotal - $discountAmount + $shippingCost);
             $notes = trim((string) ($validated['notes'] ?? ''));
-            if (!empty($systemNotes)) {
-                $notes = trim($notes . "\n" . implode("\n", $systemNotes));
-            }
 
             $order = Order::create([
                 'user_id' => null,
@@ -246,6 +224,10 @@ class AdminController extends Controller
                 'notes' => $notes !== '' ? $notes : null,
                 'subtotal' => $subtotal,
                 'shipping_cost' => $shippingCost,
+                'discount_type' => $discountType,
+                'discount_value' => $discountValue,
+                'discount_amount' => $discountAmount,
+                'force_free_shipping' => $forceFreeShipping,
                 'total' => $total,
             ]);
 
@@ -297,13 +279,7 @@ class AdminController extends Controller
             return response()->json([
                 'message' => 'تم إنشاء الطلب بنجاح',
                 'data' => new OrderResource($order->load(['items.product'])),
-                'meta' => [
-                    'discount_type' => $discountType,
-                    'discount_value' => $discountValue,
-                    'discount_amount' => $orderDiscountAmount,
-                    'subtotal_after_discount' => $subtotalAfterDiscount,
-                    'force_free_shipping' => $forceFreeShipping,
-                ],
+                'meta' => [],
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -375,6 +351,39 @@ class AdminController extends Controller
     }
 
     /**
+     * Admin: Send customer confirmation email manually for a specific order
+     */
+    public function sendOrderCustomerEmail(Order $order): JsonResponse
+    {
+        $order->loadMissing(['items.product']);
+
+        if (empty($order->customer_email) || !filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json([
+                'message' => 'لا يوجد بريد إلكتروني صالح للعميل في هذا الطلب',
+            ], 422);
+        }
+
+        try {
+            Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
+
+            return response()->json([
+                'message' => 'تم إرسال إيميل تأكيد الطلب للعميل بنجاح',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to send customer order email from admin orders action', [
+                'order_id' => $order->id,
+                'customer_email' => $order->customer_email,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'فشل إرسال الإيميل',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Admin: Update order
      */
     public function updateOrder(Request $request, Order $order): JsonResponse
@@ -395,10 +404,10 @@ class AdminController extends Controller
             'items.*.product_id' => 'required_with:items|integer|exists:products,id',
             'items.*.product_variant_id' => 'nullable|integer|exists:product_variants,id',
             'items.*.quantity' => 'required_with:items|integer|min:1',
+            'notes' => 'nullable|string',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'force_free_shipping' => 'nullable|boolean',
-            'notes' => 'nullable|string',
         ]);
 
         $oldStatus = $order->order_status;
@@ -414,9 +423,10 @@ class AdminController extends Controller
             || array_key_exists('customer_building', $validated)
             || array_key_exists('customer_additional_info', $validated)
             || isset($validated['payment_method'])
-            || isset($validated['discount_type'])
-            || isset($validated['discount_value'])
-            || array_key_exists('force_free_shipping', $validated);
+            || array_key_exists('discount_type', $validated)
+            || array_key_exists('discount_value', $validated)
+            || array_key_exists('force_free_shipping', $validated)
+            ;
 
         if ($hasDeepUpdate) {
             DB::beginTransaction();
@@ -483,11 +493,10 @@ class AdminController extends Controller
                     if ($variant) {
                         $isAvailable = $product->stock_status === 'in_stock' || $variant->stock_quantity >= $qty;
                     } else {
-                        if ($product->stock_status === 'out_of_stock') {
-                            $isAvailable = false;
-                        } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                        if ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
                             $isAvailable = true;
-                        } elseif ($product->stock_status === 'stock_based') {
+                        } else {
+                            // For stock-based/out_of_stock states, trust actual quantity.
                             $isAvailable = $product->stock_quantity >= $qty;
                         }
                     }
@@ -520,40 +529,29 @@ class AdminController extends Controller
                     ];
                 }
 
-                $discountType = $validated['discount_type'] ?? null;
-                $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
-                $orderDiscountAmount = 0.0;
-                if ($discountType && $discountValue > 0) {
-                    if ($discountType === 'percentage') {
-                        $orderDiscountAmount = round($subtotal * min(100, $discountValue) / 100, 2);
-                    } else {
-                        $orderDiscountAmount = min($subtotal, $discountValue);
-                    }
+                $discountType = array_key_exists('discount_type', $validated)
+                    ? ($validated['discount_type'] ?: null)
+                    : ($order->discount_type ?: null);
+                $discountValue = array_key_exists('discount_value', $validated)
+                    ? (float) ($validated['discount_value'] ?? 0)
+                    : (float) ($order->discount_value ?? 0);
+                if (!$discountType) {
+                    $discountValue = 0;
                 }
+                $discountAmount = $this->calculateManualDiscountAmount($subtotal, $discountType, $discountValue);
 
-                $subtotalAfterDiscount = max(0, $subtotal - $orderDiscountAmount);
-                $forceFreeShipping = (bool) ($validated['force_free_shipping'] ?? false);
                 $shippingCost = (float) $city->shipping_cost;
-                if ($forceFreeShipping) {
+                $forceFreeShipping = array_key_exists('force_free_shipping', $validated)
+                    ? (bool) $validated['force_free_shipping']
+                    : (bool) ($order->force_free_shipping ?? false);
+                if (
+                    $forceFreeShipping ||
+                    ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotal >= (float) $city->free_shipping_threshold)
+                ) {
                     $shippingCost = 0.0;
-                } elseif ((float) ($city->free_shipping_threshold ?? 0) > 0 && $subtotalAfterDiscount >= (float) $city->free_shipping_threshold) {
-                    $shippingCost = 0.0;
                 }
-                $total = $subtotalAfterDiscount + $shippingCost;
-
-                $systemNotes = [];
-                if ($orderDiscountAmount > 0) {
-                    $systemNotes[] = $discountType === 'percentage'
-                        ? "Admin discount ({$discountValue}%): -" . number_format($orderDiscountAmount, 2) . " ILS"
-                        : "Admin fixed discount: -" . number_format($orderDiscountAmount, 2) . " ILS";
-                }
-                if ($forceFreeShipping) {
-                    $systemNotes[] = "Free shipping enabled by admin.";
-                }
+                $total = max(0, $subtotal - $discountAmount + $shippingCost);
                 $notes = trim((string) ($validated['notes'] ?? $order->notes ?? ''));
-                if (!empty($systemNotes)) {
-                    $notes = trim($notes . "\n" . implode("\n", $systemNotes));
-                }
 
                 $order->update([
                     'customer_name' => $validated['customer_name'] ?? $order->customer_name,
@@ -570,6 +568,10 @@ class AdminController extends Controller
                     'notes' => $notes !== '' ? $notes : null,
                     'subtotal' => $subtotal,
                     'shipping_cost' => $shippingCost,
+                    'discount_type' => $discountType,
+                    'discount_value' => $discountValue,
+                    'discount_amount' => $discountAmount,
+                    'force_free_shipping' => $forceFreeShipping,
                     'total' => $total,
                 ]);
 
@@ -703,6 +705,80 @@ class AdminController extends Controller
     /**
      * Restore stock for all items in an order
      */
+    private function calculateManualDiscountAmount(float $subtotal, ?string $discountType, float $discountValue): float
+    {
+        $subtotal = max(0, $subtotal);
+        $discountValue = max(0, $discountValue);
+
+        if (!$discountType || $discountValue <= 0 || $subtotal <= 0) {
+            return 0.0;
+        }
+
+        if ($discountType === 'fixed') {
+            return round(min($subtotal, $discountValue), 2);
+        }
+
+        if ($discountType === 'percentage') {
+            $percentage = min(100, $discountValue);
+            return round(min($subtotal, $subtotal * ($percentage / 100)), 2);
+        }
+
+        return 0.0;
+    }
+
+    private function normalizeVariantValues($values): array
+    {
+        if (is_string($values)) {
+            $decoded = json_decode($values, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $values = $decoded;
+            }
+        }
+
+        if (!is_array($values)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($values as $key => $value) {
+            $normalizedKey = strtolower(trim((string) $key));
+            $normalizedValue = strtolower(trim((string) $value));
+            if ($normalizedKey === '' || $normalizedValue === '') {
+                continue;
+            }
+            $normalized[$normalizedKey] = $normalizedValue;
+        }
+        ksort($normalized);
+
+        return $normalized;
+    }
+
+    private function resolveOrderItemVariant(Product $product, ?int $variantId = null, $variantValues = null): ?ProductVariant
+    {
+        if ($variantId) {
+            return ProductVariant::where('id', $variantId)
+                ->where('product_id', $product->id)
+                ->first();
+        }
+
+        if (!$product->variants()->exists()) {
+            return null;
+        }
+
+        $targetValues = $this->normalizeVariantValues($variantValues);
+        if (empty($targetValues)) {
+            return null;
+        }
+
+        foreach ($product->variants()->get() as $variant) {
+            if ($this->normalizeVariantValues($variant->variant_values) === $targetValues) {
+                return $variant;
+            }
+        }
+
+        return null;
+    }
+
     private function restoreOrderStock(Order $order): void
     {
         $order->load('items.product');
@@ -713,11 +789,14 @@ class AdminController extends Controller
                 $product = $item->product;
                 if ($product) {
                     // Start restoration
-                    if ($item->product_variant_id) {
-                        $variant = \App\Models\ProductVariant::find($item->product_variant_id);
-                        if ($variant) {
-                            $variant->increment('stock_quantity', $item->quantity);
-                        }
+                    $variant = $this->resolveOrderItemVariant(
+                        $product,
+                        $item->product_variant_id ? (int) $item->product_variant_id : null,
+                        $item->variant_values
+                    );
+
+                    if ($variant) {
+                        $variant->increment('stock_quantity', $item->quantity);
                     } else {
                         // Only increment product stock if it has no variants
                         if (!$product->variants()->exists()) {
@@ -777,15 +856,18 @@ class AdminController extends Controller
                 if (!$product) continue;
 
                 $isAvailable = false;
-                if ($item->product_variant_id) {
-                    $variant = \App\Models\ProductVariant::find($item->product_variant_id);
+                $variant = $this->resolveOrderItemVariant(
+                    $product,
+                    $item->product_variant_id ? (int) $item->product_variant_id : null,
+                    $item->variant_values
+                );
+                if ($variant) {
                     $isAvailable = $variant && $variant->stock_quantity >= $item->quantity;
                 } else {
-                    if ($product->stock_status === 'out_of_stock') {
-                        $isAvailable = false;
-                    } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                    if ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
                         $isAvailable = true;
-                    } elseif ($product->stock_status === 'stock_based') {
+                    } else {
+                        // For stock-based/out_of_stock states, trust actual quantity.
                         $isAvailable = $product->stock_quantity >= $item->quantity;
                     }
                 }
@@ -813,11 +895,10 @@ class AdminController extends Controller
                         $requiredQuantity = $bundleItem['quantity'] * $item->quantity;
                         
                         $isAvailable = false;
-                        if ($product->stock_status === 'out_of_stock') {
-                            $isAvailable = false;
-                        } elseif ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
+                        if ($product->stock_status === 'in_stock' || $product->stock_status === 'on_backorder') {
                             $isAvailable = true;
-                        } elseif ($product->stock_status === 'stock_based') {
+                        } else {
+                            // For stock-based/out_of_stock states, trust actual quantity.
                             $isAvailable = $product->stock_quantity >= $requiredQuantity;
                         }
 
@@ -847,11 +928,13 @@ class AdminController extends Controller
             if ($item->product_id) {
                 $product = $item->product;
                 if ($product) {
-                    if ($item->product_variant_id) {
-                        $variant = \App\Models\ProductVariant::find($item->product_variant_id);
-                        if ($variant) {
-                            $variant->decrement('stock_quantity', $item->quantity);
-                        }
+                    $variant = $this->resolveOrderItemVariant(
+                        $product,
+                        $item->product_variant_id ? (int) $item->product_variant_id : null,
+                        $item->variant_values
+                    );
+                    if ($variant) {
+                        $variant->decrement('stock_quantity', $item->quantity);
                     } else {
                         // Only decrement if it has no variants
                         if (!$product->variants()->exists()) {
