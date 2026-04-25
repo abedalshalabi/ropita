@@ -758,14 +758,13 @@ const Index = () => {
                 {sliderItems.map((item) => (
                   <div
                     key={item.id}
-                    className={`relative ${item.text_color} py-12 sm:py-16 lg:py-24 overflow-hidden min-h-[350px] sm:min-h-[450px] lg:min-h-[600px] flex items-center justify-start`}
+                    className={`hero-slide-mobile-fit relative ${item.text_color} py-0 sm:py-16 lg:py-24 overflow-hidden min-h-0 sm:min-h-[450px] lg:min-h-[600px] flex items-end sm:items-center justify-start`}
                     style={item.image ? {
                       backgroundImage: `url(${getStorageUrl(item.image)})`,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                       backgroundRepeat: 'no-repeat',
                       width: '100%',
-                      height: '100%',
                     } : {}}
                   >
                     {/* Admin-editable overlay gradient */}
@@ -773,37 +772,37 @@ const Index = () => {
                       <div className={`absolute inset-0 bg-gradient-to-r ${item.background_color} z-0 pointer-events-none`}></div>
                     )}
 
-                    <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 w-full flex items-center">
-                      <div className="max-w-2xl w-full pr-4 sm:pr-8 lg:pr-12 relative z-10">
+                    <div className="container mx-auto px-2.5 sm:px-6 lg:px-8 relative z-10 w-full h-full flex items-end sm:items-center">
+                      <div className="hero-slide-mobile-content max-w-[98%] sm:max-w-2xl w-full pr-0 sm:pr-8 lg:pr-12 pb-0 sm:pb-0 relative z-10">
                         {item.title && (
-                          <h2 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold mb-4 sm:mb-6 lg:mb-8 leading-tight tracking-tight text-gray-900 drop-shadow-md">
+                          <h2 className="hero-slide-mobile-title text-lg sm:text-5xl lg:text-7xl font-extrabold mb-1.5 sm:mb-6 lg:mb-8 leading-snug sm:leading-tight tracking-tight text-gray-900 drop-shadow-md">
                             {item.title}
                             {item.subtitle && (
-                              <span className="inline-block mt-3 sm:mt-4 lg:mt-6 text-xl sm:text-3xl lg:text-4xl text-emerald-800 font-bold drop-shadow-md bg-white/90 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-white/50">
+                              <span className="hero-slide-mobile-subtitle block w-fit mt-1 sm:mt-4 lg:mt-6 text-xs sm:text-3xl lg:text-4xl text-emerald-800 font-bold drop-shadow-md bg-white/90 backdrop-blur-md px-2.5 py-1 sm:px-5 sm:py-2.5 rounded-xl sm:rounded-2xl border border-white/50">
                                 {item.subtitle}
                               </span>
                             )}
                           </h2>
                         )}
                         {item.description && (
-                          <p className="text-sm sm:text-lg lg:text-2xl mb-6 sm:mb-8 lg:mb-10 leading-relaxed text-gray-800 font-semibold drop-shadow max-w-xl">
+                          <p className="hero-slide-mobile-description text-[11px] sm:text-lg lg:text-2xl mb-2.5 sm:mb-8 lg:mb-10 leading-relaxed text-gray-800 font-semibold drop-shadow max-w-[100%] sm:max-w-xl">
                             {item.description}
                           </p>
                         )}
-                        <div className="flex flex-row flex-wrap gap-3 sm:gap-4 lg:gap-5 mt-8 sm:mt-10">
+                        <div className="hero-slide-mobile-actions flex flex-row flex-wrap gap-1.5 sm:gap-4 lg:gap-5 mt-2 sm:mt-10">
                           {item.button1_text && item.button1_link && (
                             <Link
                               to={item.button1_link}
-                              className={`${item.button1_color && item.button1_color !== '' ? item.button1_color : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 text-sm sm:text-base lg:text-lg border-2 border-transparent`}
+                              className={`hero-slide-mobile-btn hero-slide-mobile-btn-primary ${item.button1_color && item.button1_color !== '' ? item.button1_color : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md'} px-3 sm:px-8 lg:px-10 py-1.5 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-base lg:text-lg border-2 border-transparent`}
                             >
                               {item.button1_text}
-                              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" />
+                              <ChevronRight className="w-3 h-3 sm:w-5 sm:h-5 lg:w-6 lg:h-6" />
                             </Link>
                           )}
                           {item.button2_text && item.button2_link && (
                             <Link
                               to={item.button2_link}
-                              className={`${item.button2_color && item.button2_color !== '' ? item.button2_color : 'bg-white text-gray-900 hover:bg-gray-100 border-gray-300 shadow-xl'} px-6 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-2xl transition-all duration-300 text-center text-sm sm:text-base lg:text-lg border-2`}
+                              className={`hero-slide-mobile-btn hero-slide-mobile-btn-secondary ${item.button2_color && item.button2_color !== '' ? item.button2_color : 'bg-white text-gray-900 hover:bg-gray-100 border-gray-300 shadow-xl'} px-3 sm:px-8 lg:px-10 py-1.5 sm:py-4 lg:py-4 rounded-full font-bold hover:scale-105 hover:shadow-2xl transition-all duration-300 text-center text-[11px] sm:text-base lg:text-lg border-2`}
                             >
                               {item.button2_text}
                             </Link>
