@@ -92,7 +92,6 @@ class AdminController extends Controller
             'items.*.product_variant_id' => 'nullable|integer|exists:product_variants,id',
             'items.*.quantity' => 'required|integer|min:1',
 
-            'send_customer_email' => 'nullable|boolean',
         ]);
 
         $city = City::where('name', $validated['customer_city'])
@@ -107,8 +106,6 @@ class AdminController extends Controller
                 ],
             ], 422);
         }
-
-        $sendCustomerEmail = (bool) ($validated['send_customer_email'] ?? false);
 
         DB::beginTransaction();
 
@@ -263,18 +260,6 @@ class AdminController extends Controller
             }
 
             DB::commit();
-
-            if ($sendCustomerEmail && !empty($order->customer_email) && filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
-                try {
-                    Mail::to($order->customer_email)->send(new OrderPlacedMail($order, 'customer'));
-                } catch (\Throwable $mailException) {
-                    Log::error('Failed to send customer order email from admin create order', [
-                        'order_id' => $order->id,
-                        'customer_email' => $order->customer_email,
-                        'error' => $mailException->getMessage(),
-                    ]);
-                }
-            }
 
             return response()->json([
                 'message' => 'تم إنشاء الطلب بنجاح',
