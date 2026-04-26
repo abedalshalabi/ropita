@@ -159,6 +159,84 @@ const formatPrice = (price: number | string): string => {
   }
 };
 
+const normalizeVariantValues = (raw: any): Record<string, string> => {
+  if (!raw) return {};
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [k, String(v ?? "")])
+        );
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return Object.fromEntries(
+      Object.entries(raw).map(([k, v]) => [k, String(v ?? "")])
+    );
+  }
+
+  return {};
+};
+
+const normalizeImageList = (raw: any): string[] => {
+  if (!raw) return [];
+
+  let source: any = raw;
+
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (!trimmed) return [];
+
+    try {
+      source = JSON.parse(trimmed);
+    } catch {
+      source = [trimmed];
+    }
+  }
+
+  const asArray = Array.isArray(source) ? source : [source];
+  const normalized = asArray
+    .map((img: any) => {
+      if (!img) return "";
+
+      if (typeof img === "string") {
+        const value = img.trim();
+        if (!value) return "";
+        return value.startsWith("http") ? value : getStorageUrl(value);
+      }
+
+      if (typeof img === "object") {
+        const candidate =
+          img.image_url ??
+          img.image_path ??
+          img.url ??
+          img.path ??
+          img.src ??
+          img.image;
+
+        if (typeof candidate === "string" && candidate.trim()) {
+          const value = candidate.trim();
+          return value.startsWith("http") ? value : getStorageUrl(value);
+        }
+      }
+
+      return "";
+    })
+    .filter((value): value is string => Boolean(value) && value !== "/placeholder.svg");
+
+  return Array.from(new Set(normalized));
+};
+
 const Product = () => {
   const { siteName } = useSiteSettings();
 
@@ -394,38 +472,26 @@ const Product = () => {
         const coverImageUrl = apiProduct.cover_image 
           ? (apiProduct.cover_image.startsWith('http') ? apiProduct.cover_image : getStorageUrl(apiProduct.cover_image)) 
           : null;
-        if (apiProduct.images && Array.isArray(apiProduct.images)) {
-          apiProduct.images.forEach((img: any) => {
-            if (typeof img === 'string') {
-              const fullUrl = getStorageUrl(img);
-              if (!(coverImageUrl && (fullUrl === coverImageUrl || img === apiProduct.cover_image))) {
-                transformedImages.push(fullUrl);
-              }
-            } else if (img && typeof img === 'object') {
-              const path = img.image_url || img.image_path;
-              if (path) {
-                const fullUrl = getStorageUrl(path);
-                if (!(coverImageUrl && (fullUrl === coverImageUrl || path === apiProduct.cover_image))) {
-                  transformedImages.push(fullUrl);
-                }
-              }
-            }
-          });
-        }
+        normalizeImageList(apiProduct.images).forEach((fullUrl) => {
+          if (!(coverImageUrl && fullUrl === coverImageUrl)) {
+            transformedImages.push(fullUrl);
+          }
+        });
 
-        const transformedSizeGuideImages: string[] = [];
-        if (apiProduct.size_guide_images && Array.isArray(apiProduct.size_guide_images)) {
-          apiProduct.size_guide_images.forEach((img: any) => {
-            if (typeof img === 'string') {
-              transformedSizeGuideImages.push(getStorageUrl(img));
-            } else if (img && typeof img === 'object') {
-              const path = img.image_url || img.image_path;
-              if (path) {
-                transformedSizeGuideImages.push(getStorageUrl(path));
-              }
-            }
-          });
-        }
+        const transformedSizeGuideImages: string[] = normalizeImageList(apiProduct.size_guide_images);
+
+        const normalizedVariants = Array.isArray(apiProduct.variants)
+          ? apiProduct.variants.map((variant: any) => ({
+              ...variant,
+              variant_values: normalizeVariantValues(variant?.variant_values),
+              images: normalizeImageList(
+                variant?.images ??
+                variant?.variant_images ??
+                variant?.image_urls ??
+                variant?.image
+              ),
+            }))
+          : [];
 
         const basePrice = Number(apiProduct.price);
         const explicitDiscountPercentage = apiProduct.discount_percentage ? Number(apiProduct.discount_percentage) : 0;
@@ -469,7 +535,7 @@ const Product = () => {
           dimensions: apiProduct.dimensions,
           weight: apiProduct.weight,
           viewsCount: apiProduct.views_count || 0,
-          variants: apiProduct.variants || [],
+          variants: normalizedVariants,
           filter_values: (() => {
             const raw = apiProduct.filter_values || {};
             const normalized: Record<string, string[]> = {};
@@ -498,9 +564,9 @@ const Product = () => {
           setActiveTab('specifications');
         }
 
-        if (apiProduct.variants && apiProduct.variants.length > 0) {
+        if (normalizedVariants.length > 0) {
           // Find first variant with stock to set as default
-          const firstAvailableVariant = apiProduct.variants.find((v: any) => Number(v.stock_quantity) > 0) || apiProduct.variants[0];
+          const firstAvailableVariant = normalizedVariants.find((v: any) => Number(v.stock_quantity) > 0) || normalizedVariants[0];
           setSelectedOptions({ ...firstAvailableVariant.variant_values });
         } else {
           setSelectedOptions({});
@@ -686,21 +752,9 @@ const Product = () => {
     if (!product) return [];
     
     // 1. If variant is selected and HAS images, show ONLY those variant images.
-    if (matchingVariant && matchingVariant.images && matchingVariant.images.length > 0) {
-      return matchingVariant.images.map((img: any) => {
-        // Variant images can be strings or objects, and can already be full URLs.
-        if (!img) return "/placeholder.svg";
-        if (typeof img === "string") {
-          return img.startsWith("http") ? img : getStorageUrl(img);
-        }
-        if (typeof img === "object") {
-          const raw = img.image_url || img.image_path || img.url || img.path;
-          if (typeof raw === "string" && raw.trim() !== "") {
-            return raw.startsWith("http") ? raw : getStorageUrl(raw);
-          }
-        }
-        return "/placeholder.svg";
-      });
+    const variantImages = normalizeImageList(matchingVariant?.images);
+    if (variantImages.length > 0) {
+      return variantImages;
     }
     
     // 2. If no variant selected or selected variant HAS NO images, return cover image + base images
