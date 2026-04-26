@@ -36,6 +36,7 @@ interface ProductDetail {
   price: number;
   originalPrice?: number;
   comparePrice?: number;
+  explicitDiscountPercentage?: number;
   images: string[];
   rating: number;
   reviews: number;
@@ -218,11 +219,31 @@ const Product = () => {
     });
   }, [product, selectedOptions]);
 
-  const baseVariantPrice = product ? (matchingVariant && matchingVariant.price ? Number(matchingVariant.price) : product.originalPrice) : 0;
-  const displayPrice = (product && product.discountPercentage && product.discountPercentage > 0)
-    ? Number((baseVariantPrice * (1 - product.discountPercentage / 100)).toFixed(2))
-    : baseVariantPrice;
-  const displayOriginalPrice = baseVariantPrice;
+  const explicitDiscountPercentage = Number(product?.explicitDiscountPercentage || 0);
+
+  // Pricing rules:
+  // - If API provides an explicit discount_percentage, compute sale from base price.
+  // - Otherwise treat `price` (and variant price) as the final price, even if compare/original is higher.
+  const baseVariantPrice = product
+    ? (matchingVariant && matchingVariant.price ? Number(matchingVariant.price) : Number(product.originalPrice ?? product.price ?? 0))
+    : 0;
+
+  const displayPrice = product
+    ? (explicitDiscountPercentage > 0
+      ? Number((baseVariantPrice * (1 - explicitDiscountPercentage / 100)).toFixed(2))
+      : (matchingVariant && matchingVariant.price ? Number(matchingVariant.price) : Number(product.price || 0)))
+    : 0;
+
+  const displayOriginalPrice = Math.max(
+    Number(product?.comparePrice || 0),
+    explicitDiscountPercentage > 0 ? baseVariantPrice : displayPrice
+  );
+  const displaySavingsAmount = Math.max(0, displayOriginalPrice - displayPrice);
+  const displayDiscountPercentage = displaySavingsAmount > 0
+    ? (explicitDiscountPercentage > 0
+      ? explicitDiscountPercentage
+      : Math.round((displaySavingsAmount / displayOriginalPrice) * 100))
+    : 0;
   const displayStockCount = product ? (matchingVariant ? Number(matchingVariant.stock_quantity) : product.stockCount) : 0;
   const effectiveStockLimit = useMemo(() => {
     if (!product) return 0;
@@ -407,23 +428,33 @@ const Product = () => {
         }
 
         const basePrice = Number(apiProduct.price);
-        const discountPercentage = apiProduct.discount_percentage ? Number(apiProduct.discount_percentage) : 0;
-        const salePrice = discountPercentage > 0 ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2)) : basePrice;
-        const discountAmount = Math.max(0, basePrice - salePrice);
+        const explicitDiscountPercentage = apiProduct.discount_percentage ? Number(apiProduct.discount_percentage) : 0;
+        const explicitOriginalPrice = Number(apiProduct.original_price || apiProduct.compare_price || 0);
+        const salePrice = explicitDiscountPercentage > 0
+          ? Number((basePrice * (1 - explicitDiscountPercentage / 100)).toFixed(2))
+          : basePrice;
+        const displayOriginalPrice = Math.max(
+          salePrice,
+          explicitDiscountPercentage > 0 ? Math.max(basePrice, explicitOriginalPrice) : explicitOriginalPrice
+        );
+        const discountAmount = Math.max(0, displayOriginalPrice - salePrice);
 
         const transformedProduct: ProductDetail = {
           id: apiProduct.id,
           name: apiProduct.name,
           price: salePrice,
           originalPrice: basePrice,
-          comparePrice: apiProduct.compare_price ? Number(apiProduct.compare_price) : 0,
+          comparePrice: displayOriginalPrice,
+          explicitDiscountPercentage,
           images: transformedImages.length > 0 ? transformedImages : ['/placeholder.svg'],
           rating: apiProduct.rating || 0,
           reviews: apiProduct.reviews_count || 0,
           category: apiProduct.category?.name || '',
           brand: apiProduct.brand?.name || '',
           discount: discountAmount,
-          discountPercentage: discountPercentage,
+          discountPercentage: discountAmount > 0
+            ? (explicitDiscountPercentage > 0 ? explicitDiscountPercentage : Math.round((discountAmount / displayOriginalPrice) * 100))
+            : 0,
           inStock: apiProduct.stock_status === 'stock_based'
             ? ((apiProduct.stock_quantity || 0) > 0 || (apiProduct.variants && apiProduct.variants.length > 0))
             : (apiProduct.stock_status === 'in_stock' || (apiProduct.in_stock && apiProduct.stock_status !== 'out_of_stock')),
@@ -528,7 +559,7 @@ const Product = () => {
         name: product.name,
         price: displayPrice,
         original_price: displayOriginalPrice,
-        discount_percentage: product.discountPercentage,
+        discount_percentage: displayDiscountPercentage,
         image: product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg'),
         brand: product.brand || '',
         type: 'product',
@@ -915,9 +946,9 @@ const Product = () => {
                   e.currentTarget.src = '/placeholder.svg';
                 }}
               />
-              {product.discountPercentage > 0 && (
+              {displayDiscountPercentage > 0 && (
                 <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
-                  خصم {product.discountPercentage}%
+                  خصم {displayDiscountPercentage}%
                 </div>
               )}
 
@@ -994,11 +1025,18 @@ const Product = () => {
                 <>
                   <span className="text-xl text-gray-500 line-through">{formatPrice(displayOriginalPrice)} ₪</span>
                   <span className="bg-red-100 text-red-600 px-2 py-1 rounded text-sm font-bold animate-pulse">
-                    وفر {product.discountPercentage}%
+                    وفر {displayDiscountPercentage}%
                   </span>
                 </>
               )}
             </div>
+            {displaySavingsAmount > 0 && (
+              <div className="mt-2">
+                <span className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-sm font-bold text-red-600">
+                  وفر {formatPrice(displaySavingsAmount)} ₪
+                </span>
+              </div>
+            )}
 
             {/* Stock Status */}
             <div className="flex items-center gap-2">
