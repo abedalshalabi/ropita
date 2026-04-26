@@ -284,16 +284,21 @@ const Index = () => {
 
     const basePrice = Number(product.price || 0);
     const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
+    const explicitOriginalPrice = Number(product.original_price || product.compare_price || 0);
     const salePrice = discountPercentage > 0
       ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2))
       : basePrice;
+    const displayOriginalPrice = Math.max(
+      salePrice,
+      discountPercentage > 0 ? Math.max(basePrice, explicitOriginalPrice) : explicitOriginalPrice
+    );
 
     return {
       id: product.id,
       name: product.name,
       price: salePrice,
       originalPrice: basePrice,
-      comparePrice: product.compare_price ? Number(product.compare_price) : 0,
+      comparePrice: displayOriginalPrice,
       image,
       images,
       rating: product.rating || 0,
@@ -319,16 +324,21 @@ const Index = () => {
 
     const basePrice = Number(product.price || 0);
     const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
+    const explicitOriginalPrice = Number(product.original_price || product.compare_price || 0);
     const salePrice = discountPercentage > 0
       ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2))
       : basePrice;
+    const displayOriginalPrice = Math.max(
+      salePrice,
+      discountPercentage > 0 ? Math.max(basePrice, explicitOriginalPrice) : explicitOriginalPrice
+    );
 
     return {
       id: product.id,
       name: product.name,
       price: salePrice,
       originalPrice: basePrice,
-      comparePrice: product.compare_price ? Number(product.compare_price) : 0,
+      comparePrice: displayOriginalPrice,
       image,
       images,
       rating: product.rating || 0,
@@ -467,9 +477,15 @@ const Index = () => {
 
   const HomeProductCard = ({ product, brand }: { product: any; brand?: string }) => {
     const imageForAnimation = product.image || product.images?.[0] || PLACEHOLDER_IMAGE;
-    const discountPercentage = Number(product.discountPercentage ?? product.discount ?? 0);
-    const comparePrice = Number(product.originalPrice ?? product.comparePrice ?? 0);
-    const hasDiscount = discountPercentage > 0 || (comparePrice > 0 && comparePrice > Number(product.price));
+    const rawDiscountPercentage = Number(product.discountPercentage ?? product.discount ?? 0);
+    const comparePrice = Number(product.comparePrice ?? product.originalPrice ?? 0);
+    const hasDiscount = rawDiscountPercentage > 0 || (comparePrice > 0 && comparePrice > Number(product.price));
+    const discountPercentage = hasDiscount
+      ? (rawDiscountPercentage > 0
+        ? rawDiscountPercentage
+        : Math.round(((comparePrice - Number(product.price)) / comparePrice) * 100))
+      : 0;
+    const savingsAmount = Math.max(0, comparePrice - Number(product.price));
     const inWishlist = isWishlisted(product.id);
     const isProcessingWishlist = !!wishlistProcessing[product.id];
     const availableColors = extractAvailableColors(product.filterValues);
@@ -571,6 +587,13 @@ const Index = () => {
             </span>
           )}
         </div>
+        {savingsAmount > 0 && (
+          <div className="mb-2 md:mb-4">
+            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-[11px] md:text-xs font-bold text-red-600">
+              وفر {formatPrice(savingsAmount)} ₪
+            </span>
+          </div>
+        )}
 
         <button
           onClick={(e) => {

@@ -270,6 +270,7 @@ const Offers = () => {
     const originalPrice = product.original_price || product.price;
     const discountedPrice = calculatePrice();
     const discountPercent = offer.discount_percentage || Math.round((1 - discountedPrice / originalPrice) * 100);
+    const savingsAmount = Math.max(0, originalPrice - discountedPrice);
 
     const formatTimeLeft = () => {
       const remaining = offer.remaining_time;
@@ -390,6 +391,13 @@ const Offers = () => {
             )}
           </div>
         </div>
+        {savingsAmount > 0 && (
+          <div className="mt-2 mb-2 md:mb-4">
+            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-[11px] md:text-xs font-bold text-red-600">
+              وفر {formatPrice(savingsAmount)} ₪
+            </span>
+          </div>
+        )}
 
         <button
           onClick={(e) => {
@@ -447,6 +455,7 @@ const Offers = () => {
     const originalPrice = product.original_price || product.price;
     const discountedPrice = calculatePrice();
     const discountPercent = offer.discount_percentage || Math.round((1 - discountedPrice / originalPrice) * 100);
+    const savingsAmount = Math.max(0, originalPrice - discountedPrice);
 
     return (
       <div className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
@@ -540,6 +549,13 @@ const Offers = () => {
             )}
           </div>
         </div>
+        {savingsAmount > 0 && (
+          <div className="mt-2 mb-2 md:mb-4">
+            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-[11px] md:text-xs font-bold text-red-600">
+              وفر {formatPrice(savingsAmount)} ₪
+            </span>
+          </div>
+        )}
 
         <button
           onClick={(e) => {

@@ -1026,15 +1026,20 @@ const Products = () => {
 
         const basePrice = Number(product.price);
         const discountPercentage = product.discount_percentage ? Number(product.discount_percentage) : 0;
+        const explicitOriginalPrice = Number(product.original_price || product.compare_price || 0);
         const salePrice = discountPercentage > 0 ? Number((basePrice * (1 - discountPercentage / 100)).toFixed(2)) : basePrice;
-        const discountAmount = Math.max(0, basePrice - salePrice);
+        const displayOriginalPrice = Math.max(
+          salePrice,
+          discountPercentage > 0 ? Math.max(basePrice, explicitOriginalPrice) : explicitOriginalPrice
+        );
+        const discountAmount = Math.max(0, displayOriginalPrice - salePrice);
 
         return {
           id: product.id,
           name: product.name,
           price: salePrice,
           originalPrice: basePrice,
-          comparePrice: product.compare_price ? Number(product.compare_price) : 0,
+          comparePrice: displayOriginalPrice,
           images: collectedImages,
           image: imageUrl,
           rating: product.rating || 0,
@@ -1042,7 +1047,9 @@ const Products = () => {
           category: product.category?.name || '',
           brand: product.brand?.name || '',
           discount: discountAmount,
-          discountPercentage: discountPercentage,
+          discountPercentage: discountAmount > 0
+            ? (discountPercentage > 0 ? discountPercentage : Math.round((discountAmount / displayOriginalPrice) * 100))
+            : 0,
           inStock: product.stock_status === 'stock_based'
             ? (product.stock_quantity || 0) > 0
             : (product.stock_status === 'in_stock' || (product.in_stock !== false && product.stock_status !== 'out_of_stock')),
@@ -1431,6 +1438,12 @@ const Products = () => {
     const isInWishlist = isWishlisted(product.id);
     const isProcessingWishlist = !!wishlistProcessing[product.id];
     const availableColors = extractAvailableColors(product.filterValues);
+    const comparePrice = Number(product.comparePrice || product.originalPrice || 0);
+    const savingsAmount = Math.max(0, comparePrice - Number(product.price));
+    const rawDiscountPercentage = product.discountPercentage !== undefined ? Number(product.discountPercentage) : 0;
+    const discountPercentage = savingsAmount > 0 || rawDiscountPercentage > 0
+      ? (rawDiscountPercentage > 0 ? rawDiscountPercentage : Math.round((savingsAmount / comparePrice) * 100))
+      : 0;
 
     return (
       <div data-product-id={product.id} className="product-card p-2 md:p-4 group bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col h-full">
@@ -1451,7 +1464,7 @@ const Products = () => {
               }}
             />
           </Link>
-          {product.discountPercentage !== undefined && Number(product.discountPercentage) > 0 && (
+          {discountPercentage > 0 && (
             <span className="absolute top-1 right-1 md:top-2 md:right-2 bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold z-10">
               خصم {product.discountPercentage}%
             </span>
@@ -1535,6 +1548,13 @@ const Products = () => {
             <span className="text-sm md:text-base text-gray-500 line-through">{formatPrice((product.comparePrice || product.originalPrice)!)} ₪</span>
           )}
         </div>
+        {savingsAmount > 0 && (
+          <div className="mb-2 md:mb-4">
+            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-[11px] md:text-xs font-bold text-red-600">
+              وفر {formatPrice(savingsAmount)} ₪
+            </span>
+          </div>
+        )}
 
         <button
           onClick={(e) => {
