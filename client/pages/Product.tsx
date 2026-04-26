@@ -688,8 +688,18 @@ const Product = () => {
     // 1. If variant is selected and HAS images, show ONLY those variant images.
     if (matchingVariant && matchingVariant.images && matchingVariant.images.length > 0) {
       return matchingVariant.images.map((img: any) => {
-        const path = img.image_url || img.image_path;
-        return getStorageUrl(path);
+        // Variant images can be strings or objects, and can already be full URLs.
+        if (!img) return "/placeholder.svg";
+        if (typeof img === "string") {
+          return img.startsWith("http") ? img : getStorageUrl(img);
+        }
+        if (typeof img === "object") {
+          const raw = img.image_url || img.image_path || img.url || img.path;
+          if (typeof raw === "string" && raw.trim() !== "") {
+            return raw.startsWith("http") ? raw : getStorageUrl(raw);
+          }
+        }
+        return "/placeholder.svg";
       });
     }
     
