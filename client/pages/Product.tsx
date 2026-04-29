@@ -260,6 +260,27 @@ const Product = () => {
   const [showWhatsAppOrderButton, setShowWhatsAppOrderButton] = useState(true);
   const [isSizeGuideModalOpen, setIsSizeGuideModalOpen] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const preloadedImageUrlsRef = useRef<Set<string>>(new Set());
+
+  const preloadImages = (urls: string[]) => {
+    urls
+      .filter((url): url is string => Boolean(url) && !preloadedImageUrlsRef.current.has(url))
+      .forEach((url) => {
+        preloadedImageUrlsRef.current.add(url);
+        const img = new Image();
+        img.decoding = "async";
+        img.src = url;
+      });
+  };
+
+  const preloadVariantImagesByOption = (optionKey: string, optionValue: string) => {
+    if (!product?.variants?.length) return;
+    const urls = product.variants
+      .filter((variant: any) => variant?.variant_values?.[optionKey] === optionValue)
+      .flatMap((variant: any) => (Array.isArray(variant?.images) ? variant.images : []))
+      .filter((url: string) => Boolean(url));
+    preloadImages(urls);
+  };
   const lastFetchedId = useRef<string | null>(null);
 
   const isEnabledSetting = (value: unknown, defaultValue = true) => {
@@ -782,7 +803,8 @@ const Product = () => {
     setSelectedImage(0);
   }, [matchingVariant?.id]);
 
-  // Preload all variant/base images once product data is ready to reduce switching latency.
+  // Aggressive preloading for maximum variant-switch speed:
+  // preload current gallery + all variant images as soon as product data is available.
   useEffect(() => {
     if (!product) return;
 
@@ -793,17 +815,13 @@ const Product = () => {
 
     (product.variants || []).forEach((variant: any) => {
       if (Array.isArray(variant.images)) {
-        variant.images.forEach((url: string) => {
-          if (url) urls.add(url);
+        variant.images.forEach((imageUrl: string) => {
+          if (imageUrl) urls.add(imageUrl);
         });
       }
     });
 
-    urls.forEach((url) => {
-      const img = new Image();
-      img.decoding = "async";
-      img.src = url;
-    });
+    preloadImages(Array.from(urls));
   }, [product, galleryImages]);
 
   const nextImage = () => {
@@ -1211,6 +1229,8 @@ const Product = () => {
                           return (
                             <button
                               key={val}
+                              onMouseEnter={() => preloadVariantImagesByOption(key, val)}
+                              onTouchStart={() => preloadVariantImagesByOption(key, val)}
                               onClick={() => {
                                 if (!product || !product.variants) return;
                                 const variantKeys = Object.keys(product.variants[0].variant_values);
