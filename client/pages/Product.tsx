@@ -1408,15 +1408,15 @@ const Product = () => {
               <div className="flex items-center gap-3">
                 <Shield className="w-6 h-6 text-green-500" />
                 <div>
-                  <p className="font-medium text-gray-800">ضمان شامل</p>
-                  <p className="text-sm text-gray-600">{product.warranty}</p>
+                  <p className="font-medium text-gray-800">جودة عالية</p>
+                  <p className="text-sm text-gray-600">منتجاتنا أصلية وذات جودة عالية</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Zap className="w-6 h-6 text-orange-500" />
                 <div>
-                  <p className="font-medium text-gray-800">دعم فني مجاني</p>
-                  <p className="text-sm text-gray-600">خدمة عملاء متاحة</p>
+                  <p className="font-medium text-gray-800">خدمة عملاء</p>
+                  <p className="text-sm text-gray-600">على مدار الساعة</p>
                 </div>
               </div>
             </div>
