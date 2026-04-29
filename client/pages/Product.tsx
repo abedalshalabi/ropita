@@ -753,7 +753,9 @@ const Product = () => {
     if (!product) return [];
     
     // 1. If variant is selected and HAS images, show ONLY those variant images.
-    const variantImages = normalizeImageList(matchingVariant?.images);
+    const variantImages = Array.isArray(matchingVariant?.images)
+      ? (matchingVariant?.images as string[]).filter(Boolean)
+      : [];
     if (variantImages.length > 0) {
       return variantImages;
     }
@@ -779,6 +781,30 @@ const Product = () => {
   useEffect(() => {
     setSelectedImage(0);
   }, [matchingVariant?.id]);
+
+  // Preload all variant/base images once product data is ready to reduce switching latency.
+  useEffect(() => {
+    if (!product) return;
+
+    const urls = new Set<string>();
+    galleryImages.forEach((url) => {
+      if (url) urls.add(url);
+    });
+
+    (product.variants || []).forEach((variant: any) => {
+      if (Array.isArray(variant.images)) {
+        variant.images.forEach((url: string) => {
+          if (url) urls.add(url);
+        });
+      }
+    });
+
+    urls.forEach((url) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.src = url;
+    });
+  }, [product, galleryImages]);
 
   const nextImage = () => {
     if (product) {
@@ -1004,6 +1030,9 @@ const Product = () => {
                 alt={product.name}
                 width="600"
                 height="600"
+                loading="eager"
+                fetchPriority="high"
+                decoding="async"
                 className="w-full h-96 object-contain bg-white cursor-pointer hover:opacity-90 transition-opacity"
                 onClick={() => setIsImageModalOpen(true)}
                 onError={(e) => {
@@ -1052,6 +1081,8 @@ const Product = () => {
                       alt={`${product.name} ${index + 1}`}
                       width="80"
                       height="80"
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-contain bg-white cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => {
                         setSelectedImage(index);
@@ -1587,6 +1618,8 @@ const Product = () => {
             <img
               src={galleryImages[selectedImage] || '/placeholder.svg'}
               alt={product.name}
+              loading="eager"
+              decoding="async"
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
               onError={(e) => {
