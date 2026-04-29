@@ -167,6 +167,7 @@ type ProductsViewCache = {
 let productsViewCache: ProductsViewCache | null = null;
 const PLACEHOLDER_IMAGE = `${BASE_PATH || ''}/placeholder.svg`;
 const DYNAMIC_FILTERS_PARAM = "filter_values";
+const PRODUCTS_RESTORE_LATEST_KEY = "products-restore:latest";
 
 const parseDynamicFiltersFromSearch = (search: string): Record<string, string> => {
   const params = new URLSearchParams(search);
@@ -235,7 +236,15 @@ const Products = () => {
     try {
       const raw = sessionStorage.getItem(productsSnapshotKey);
       if (!raw) {
-        return null;
+        const latestRaw = sessionStorage.getItem(PRODUCTS_RESTORE_LATEST_KEY);
+        if (!latestRaw) return null;
+        const latest = JSON.parse(latestRaw);
+        if (!latest || latest.routeKey !== routeCacheKey || !Array.isArray(latest.products)) return null;
+        return {
+          products: latest.products as Product[],
+          currentPage: Number(latest.currentPage) || 1,
+          hasMore: latest.hasMore !== false,
+        };
       }
 
       const parsed = JSON.parse(raw);
@@ -310,8 +319,10 @@ const Products = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const skipInitialReloadRef = useRef(Boolean(initialProductsSnapshot));
   const isRestoringSnapshotRef = useRef(Boolean(initialProductsSnapshot));
+  const suppressAutoReloadUntilUserActionRef = useRef(Boolean(initialProductsSnapshot));
 
   const cancelSnapshotRestoreState = useCallback(() => {
+    suppressAutoReloadUntilUserActionRef.current = false;
     isRestoringSnapshotRef.current = false;
     hasRestoredScrollRef.current = true;
     pendingScrollRestoreRef.current = null;
@@ -336,6 +347,15 @@ const Products = () => {
       products,
       currentPage,
       hasMore,
+    }));
+    sessionStorage.setItem(PRODUCTS_RESTORE_LATEST_KEY, JSON.stringify({
+      routeKey: routeCacheKey,
+      products,
+      currentPage,
+      hasMore,
+      scrollY: window.scrollY,
+      anchorProductId: productId ?? null,
+      shouldRestore: true,
     }));
     if (productId) {
       sessionStorage.setItem(productsAnchorKey, String(productId));
@@ -1157,17 +1177,6 @@ const Products = () => {
     }
   }, [currentPage, hasMore]); // Removed loading/loadingMore from deps to avoid recreating function constantly
 
-  // Track if initial load has happened
-  const initialLoadRef = useRef(false);
-
-  // Consume initial snapshot skip immediately after mount so first user filter change
-  // is never ignored (production race condition after back-navigation restore).
-  useEffect(() => {
-    if (skipInitialReloadRef.current) {
-      skipInitialReloadRef.current = false;
-    }
-  }, []);
-
   // Reload products when filters change (reset to page 1)
   useEffect(() => {
     // If URL params changed while we were restoring scroll/snapshot state,
@@ -1194,6 +1203,13 @@ const Products = () => {
     if (isRestoringSnapshotRef.current) {
       return;
     }
+    if (suppressAutoReloadUntilUserActionRef.current) {
+      return;
+    }
+    if (skipInitialReloadRef.current) {
+      skipInitialReloadRef.current = false;
+      return;
+    }
 
     // Debounce reduced to 300ms for better responsiveness
     const timeoutId = setTimeout(() => {
@@ -1216,6 +1232,9 @@ const Products = () => {
       observer = new IntersectionObserver(
         (entries) => {
           const target = entries[0];
+          if (isRestoringSnapshotRef.current) {
+            return;
+          }
           if (target.isIntersecting && !loadingRef.current) {
             console.log('Intersection detected, triggering loadMore');
             loadMoreProducts();
@@ -1241,6 +1260,9 @@ const Products = () => {
   // Fallback auto-load when observer misses intersections on some browsers/layout states.
   useEffect(() => {
     const checkAndAutoLoad = () => {
+      if (isRestoringSnapshotRef.current) {
+        return;
+      }
       if (!hasMore || loading || loadingMore || loadingRef.current) {
         return;
       }
@@ -1312,15 +1334,33 @@ const Products = () => {
     const savedScroll = sessionStorage.getItem(productsScrollKey);
     const savedProductId = sessionStorage.getItem(productsAnchorKey);
     const savedPage = sessionStorage.getItem(productsPageKey);
-    if (!savedScroll) {
-      isRestoringSnapshotRef.current = false;
-      hasRestoredScrollRef.current = true;
+    if (savedScroll) {
+      pendingScrollRestoreRef.current = Number(savedScroll);
+      pendingProductRestoreRef.current = savedProductId ? Number(savedProductId) : null;
+      pendingPageRestoreRef.current = savedPage ? Number(savedPage) : 1;
       return;
     }
 
-    pendingScrollRestoreRef.current = Number(savedScroll);
-    pendingProductRestoreRef.current = savedProductId ? Number(savedProductId) : null;
-    pendingPageRestoreRef.current = savedPage ? Number(savedPage) : 1;
+    try {
+      const latestRaw = sessionStorage.getItem(PRODUCTS_RESTORE_LATEST_KEY);
+      if (!latestRaw) {
+        isRestoringSnapshotRef.current = false;
+        hasRestoredScrollRef.current = true;
+        return;
+      }
+      const latest = JSON.parse(latestRaw);
+      if (!latest || latest.routeKey !== routeCacheKey) {
+        isRestoringSnapshotRef.current = false;
+        hasRestoredScrollRef.current = true;
+        return;
+      }
+      pendingScrollRestoreRef.current = Number(latest.scrollY || 0);
+      pendingProductRestoreRef.current = latest.anchorProductId ? Number(latest.anchorProductId) : null;
+      pendingPageRestoreRef.current = Number(latest.currentPage || 1);
+    } catch {
+      isRestoringSnapshotRef.current = false;
+      hasRestoredScrollRef.current = true;
+    }
   }, [loading, routeCacheKey, productsRestoreFlagKey, productsScrollKey, productsAnchorKey, productsPageKey]);
 
   useLayoutEffect(() => {
