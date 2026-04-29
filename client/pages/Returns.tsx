@@ -263,22 +263,22 @@ const Returns = () => {
             <p className="text-xl text-gray-600">عملية بسيطة وسريعة</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             {returnSteps.map((step, index) => (
-              <div key={index} className="text-center">
-                <div className="relative mb-6">
-                  <div className="w-16 h-16 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto mb-4">
+              <div
+                key={index}
+                className="relative rounded-2xl border border-emerald-100 bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+              >
+                <div className="relative mb-5">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white shadow-md">
                     {stepIcons[index % stepIcons.length]}
                   </div>
-                  <div className="absolute -top-2 -right-2 w-8 h-8 bg-yellow-400 text-gray-800 rounded-full flex items-center justify-center text-sm font-bold">
+                  <div className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-yellow-400 text-sm font-bold text-gray-800">
                     {step.step || index + 1}
                   </div>
-                  {index < returnSteps.length - 1 && (
-                    <div className="hidden md:block absolute top-8 left-full w-full h-0.5 bg-gray-300 transform translate-x-4"></div>
-                  )}
                 </div>
-                <h3 className="text-xl font-bold text-gray-800 mb-3">{step.title}</h3>
-                <p className="text-gray-600">{step.description}</p>
+                <h3 className="mb-2 text-lg font-bold text-gray-800">{step.title}</h3>
+                <p className="text-sm leading-relaxed text-gray-600">{step.description}</p>
               </div>
             ))}
           </div>
