@@ -1496,7 +1496,7 @@ const Products = () => {
           </Link>
           {discountPercentage > 0 && (
             <span className="absolute top-1 right-1 md:top-2 md:right-2 bg-red-500 text-white px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-sm font-bold z-10">
-              خصم {product.discountPercentage}%
+              {product.discountPercentage}%
             </span>
           )}
           {!product.inStock && (
