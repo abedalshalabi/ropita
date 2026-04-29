@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
   Truck,
@@ -96,122 +96,22 @@ const parseStringArray = (value: unknown): string[] => {
   return [];
 };
 
-const parseSettingsArray = <T,>(value: unknown, fallback: T[]): T[] => {
+const parseSettingsArray = <T,>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[];
 
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (!trimmed) return fallback;
+    if (!trimmed) return [];
     try {
       const parsed = JSON.parse(trimmed);
-      return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
     } catch {
-      return fallback;
+      return [];
     }
   }
 
-  return fallback;
+  return [];
 };
-
-const defaultShippingOptions: ShippingOption[] = [
-  {
-    title: "التوصيل العادي",
-    duration: "3-5 أيام عمل",
-    cost: "مجاني للطلبات أكثر من 500 شيكل",
-    description: "خدمة التوصيل العادية لجميع أنحاء فلسطين",
-    features: ["تتبع الشحنة", "التأمين الأساسي", "التوصيل للمنزل"],
-  },
-  {
-    title: "التوصيل السريع",
-    duration: "1-2 أيام عمل",
-    cost: "50 شيكل إضافي",
-    description: "خدمة التوصيل السريع للمدن الرئيسية",
-    features: ["تتبع مباشر", "تأمين شامل", "أولوية في التوصيل"],
-  },
-  {
-    title: "التوصيل في نفس اليوم",
-    duration: "خلال 6 ساعات",
-    cost: "100 شيكل إضافي",
-    description: "متاح في جنين والمدن المجاورة فقط",
-    features: ["تتبع لحظي", "تأمين كامل", "خدمة VIP"],
-  },
-];
-
-const defaultShippingSteps: ShippingStep[] = [
-  {
-    step: 1,
-    title: "تأكيد الطلب",
-    description: "نراجع طلبك ونتأكد من توفر المنتجات",
-  },
-  {
-    step: 2,
-    title: "التحضير والتغليف",
-    description: "نحضر منتجاتك ونغلفها بعناية فائقة",
-  },
-  {
-    step: 3,
-    title: "الشحن",
-    description: "نرسل الطلب مع شركة الشحن المختارة",
-  },
-  {
-    step: 4,
-    title: "التسليم",
-    description: "يصلك الطلب في الموعد المحدد",
-  },
-];
-
-const defaultShippingCities: ShippingCity[] = [
-  { name: "جنين", duration: "1-2 أيام", cost: "مجاني", sameDay: true },
-  { name: "نابلس", duration: "2-3 أيام", cost: "مجاني", sameDay: true },
-  { name: "طولكرم", duration: "2-3 أيام", cost: "مجاني", sameDay: true },
-  { name: "رام الله", duration: "2-3 أيام", cost: "مجاني", sameDay: false },
-  { name: "الخليل", duration: "3-4 أيام", cost: "مجاني", sameDay: false },
-  { name: "بيت لحم", duration: "3-4 أيام", cost: "مجاني", sameDay: false },
-  { name: "قلقيلية", duration: "3-4 أيام", cost: "مجاني", sameDay: false },
-  { name: "أريحا", duration: "4-5 أيام", cost: "مجاني", sameDay: false },
-];
-
-const defaultShippingPolicies: ShippingPolicy[] = [
-  {
-    title: "ضمان الوصول الآمن",
-    description: "نضمن وصول منتجاتك بحالة ممتازة أو نستبدلها مجانا",
-  },
-  {
-    title: "التسليم في الوقت المحدد",
-    description: "نلتزم بمواعيد التسليم المحددة أو نقدم تعويضا",
-  },
-  {
-    title: "تغليف احترافي",
-    description: "نستخدم مواد تغليف عالية الجودة لحماية منتجاتك",
-  },
-  {
-    title: "تتبع مباشر",
-    description: "تابع شحنتك لحظة بلحظة عبر رقم التتبع",
-  },
-];
-
-const defaultShippingNotes: ShippingNote[] = [
-  {
-    title: "شروط الشحن المجاني",
-    description: "الشحن مجاني للطلبات التي تزيد قيمتها عن 500 شيكل داخل المدن الرئيسية في فلسطين.",
-    type: "info",
-  },
-  {
-    title: "الأجهزة الكبيرة",
-    description: "الأجهزة الكبيرة مثل الثلاجات والغسالات تحتاج موعد مسبق للتوصيل والتركيب.",
-    type: "warning",
-  },
-  {
-    title: "خدمة التركيب",
-    description: "نقدم خدمة التركيب المجاني للأجهزة الكبيرة مع ضمان على التركيب لمدة 6 أشهر.",
-    type: "success",
-  },
-  {
-    title: "المناطق النائية",
-    description: "قد تحتاج المناطق النائية وقتا إضافيا للتوصيل (5-7 أيام عمل) مع رسوم شحن إضافية.",
-    type: "danger",
-  },
-];
 
 const shippingOptionIcons = [
   <Truck className="h-8 w-8 text-emerald-600" />,
@@ -295,32 +195,31 @@ const Shipping = () => {
     );
   }
 
-  const shippingOptionsRaw = parseSettingsArray<ShippingOption>(settings.shipping_options, defaultShippingOptions);
+  const shippingOptionsRaw = parseSettingsArray<ShippingOption>(settings.shipping_options);
   const shippingOptions = shippingOptionsRaw.map((option) => ({
     ...option,
     features: parseStringArray(option.features),
   }));
-  const shippingSteps = parseSettingsArray<ShippingStep>(settings.shipping_steps, defaultShippingSteps);
-  const shippingCities = parseSettingsArray<ShippingCity>(settings.shipping_cities, defaultShippingCities);
-  const shippingPolicies = parseSettingsArray<ShippingPolicy>(settings.shipping_policies, defaultShippingPolicies);
-  const shippingNotes = parseSettingsArray<ShippingNote>(settings.shipping_notes, defaultShippingNotes);
+  const shippingSteps = parseSettingsArray<ShippingStep>(settings.shipping_steps);
+  const shippingCities = parseSettingsArray<ShippingCity>(settings.shipping_cities);
+  const shippingPolicies = parseSettingsArray<ShippingPolicy>(settings.shipping_policies);
+  const shippingNotes = parseSettingsArray<ShippingNote>(settings.shipping_notes);
 
   return (
     <div className="min-h-screen bg-gray-50 arabic">
       <SEO
-        title={`سياسة الشحن والتوصيل${siteName ? ` | ${siteName}` : ""}`}
-        description={`تعرف على سياسة الشحن والتوصيل في${siteName ? ` ${siteName}` : " متجرنا"}. نصل لجميع مدن فلسطين بأمان وسرعة.`}
+        title={`Ø³ÙŠØ§Ø³Ø© Ø§Ù„Ø´Ø­Ù† ÙˆØ§Ù„ØªÙˆØµÙŠÙ„${siteName ? ` | ${siteName}` : ""}`}
+        description={`ØªØ¹Ø±Ù Ø¹Ù„Ù‰ Ø³ÙŠØ§Ø³Ø© Ø§Ù„Ø´Ø­Ù† ÙˆØ§Ù„ØªÙˆØµÙŠÙ„ ÙÙŠ${siteName ? ` ${siteName}` : " Ù…ØªØ¬Ø±Ù†Ø§"}. Ù†ØµÙ„ Ù„Ø¬Ù…ÙŠØ¹ Ù…Ø¯Ù† ÙÙ„Ø³Ø·ÙŠÙ† Ø¨Ø£Ù…Ø§Ù† ÙˆØ³Ø±Ø¹Ø©.`}
       />
       <Header showSearch={true} showActions={true} />
 
       <section className="bg-gradient-to-r from-emerald-900 to-teal-900 py-20 text-white">
         <div className="container mx-auto px-4 text-center">
           <h1 className="mb-6 text-5xl font-bold">
-            {settings.shipping_hero_title || "سياسة الشحن والتوصيل"}
+            {settings.shipping_hero_title}
           </h1>
           <p className="mx-auto max-w-3xl text-xl leading-relaxed text-emerald-200">
-            {settings.shipping_hero_description ||
-              "نقدم خدمات شحن وتوصيل متنوعة لضمان وصول منتجاتك بأمان وفي الوقت المناسب"}
+            {settings.shipping_hero_description}
           </p>
         </div>
       </section>
@@ -329,10 +228,10 @@ const Shipping = () => {
         <div className="container mx-auto px-4">
           <div className="mb-16 text-center">
             <h2 className="mb-4 text-4xl font-bold text-gray-800">
-              {settings.shipping_options_title || "خيارات الشحن"}
+              {settings.shipping_options_title}
             </h2>
             <p className="text-xl text-gray-600">
-              {settings.shipping_options_description || "اختر الخيار الأنسب لك"}
+              {settings.shipping_options_description}
             </p>
           </div>
 
@@ -373,10 +272,10 @@ const Shipping = () => {
         <div className="container mx-auto px-4">
           <div className="mb-16 text-center">
             <h2 className="mb-4 text-4xl font-bold text-gray-800">
-              {settings.shipping_steps_title || "مراحل الشحن"}
+              {settings.shipping_steps_title}
             </h2>
             <p className="text-xl text-gray-600">
-              {settings.shipping_steps_description || "كيف نضمن وصول طلبك بأمان"}
+              {settings.shipping_steps_description}
             </p>
           </div>
 
@@ -406,10 +305,10 @@ const Shipping = () => {
         <div className="container mx-auto px-4">
           <div className="mb-16 text-center">
             <h2 className="mb-4 text-4xl font-bold text-gray-800">
-              {settings.shipping_coverage_title || "التغطية الجغرافية"}
+              {settings.shipping_coverage_title}
             </h2>
             <p className="text-xl text-gray-600">
-              {settings.shipping_coverage_description || "نصل إلى جميع مدن فلسطين"}
+              {settings.shipping_coverage_description}
             </p>
           </div>
 
@@ -423,7 +322,7 @@ const Shipping = () => {
                   <h3 className="text-lg font-bold text-gray-800">{city.name}</h3>
                   {city.sameDay && (
                     <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
-                      نفس اليوم
+                      Ù†ÙØ³ Ø§Ù„ÙŠÙˆÙ…
                     </span>
                   )}
                 </div>
@@ -447,10 +346,10 @@ const Shipping = () => {
         <div className="container mx-auto px-4">
           <div className="mb-16 text-center">
             <h2 className="mb-4 text-4xl font-bold text-gray-800">
-              {settings.shipping_policies_title || "ضماناتنا"}
+              {settings.shipping_policies_title}
             </h2>
             <p className="text-xl text-gray-600">
-              {settings.shipping_policies_description || "التزامنا تجاه عملائنا"}
+              {settings.shipping_policies_description}
             </p>
           </div>
 
@@ -479,7 +378,7 @@ const Shipping = () => {
         <div className="container mx-auto px-4">
           <div className="mb-16 text-center">
             <h2 className="mb-4 text-4xl font-bold text-gray-800">
-              {settings.shipping_notes_title || "ملاحظات مهمة"}
+              {settings.shipping_notes_title}
             </h2>
           </div>
 
@@ -511,24 +410,24 @@ const Shipping = () => {
       <section className="bg-gradient-to-r from-emerald-600 to-teal-600 py-16 text-white">
         <div className="container mx-auto px-4 text-center">
           <h2 className="mb-4 text-3xl font-bold">
-            {settings.shipping_cta_title || "هل لديك استفسار حول الشحن؟"}
+            {settings.shipping_cta_title}
           </h2>
           <p className="mb-8 text-xl text-emerald-200">
-            {settings.shipping_cta_description || "فريق خدمة العملاء جاهز لمساعدتك في أي وقت"}
+            {settings.shipping_cta_description}
           </p>
           <div className="flex justify-center gap-4">
             <Link
               to="/contact"
               className="rounded-full bg-white px-8 py-4 font-semibold text-emerald-600 transition-colors hover:bg-gray-100"
             >
-              تواصل معنا
+              ØªÙˆØ§ØµÙ„ Ù…Ø¹Ù†Ø§
             </Link>
             {settings.shipping_cta_phone && (
               <a
                 href={`tel:${settings.shipping_cta_phone}`}
                 className="rounded-full border-2 border-white px-8 py-4 font-semibold text-white transition-colors hover:bg-white hover:text-emerald-600"
               >
-                اتصل الآن
+                Ø§ØªØµÙ„ Ø§Ù„Ø¢Ù†
               </a>
             )}
           </div>
@@ -539,3 +438,5 @@ const Shipping = () => {
 };
 
 export default Shipping;
+
+
