@@ -52,6 +52,7 @@ class Product extends Model
         'cover_image',
         'show_description',
         'show_specifications',
+        'created_at',
     ];
 
     protected $casts = [

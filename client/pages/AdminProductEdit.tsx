@@ -90,6 +90,7 @@ interface Product {
   variants?: Variant[];
   show_description?: boolean;
   show_specifications?: boolean;
+  created_at?: string;
 }
 
 export interface Variant {
@@ -145,6 +146,14 @@ const AdminProductEdit: React.FC = () => {
   const [sizeGuidePreviews, setSizeGuidePreviews] = useState<string[]>([]);
   const [sizeGuideUrlsText, setSizeGuideUrlsText] = useState('');
 
+  const formatDateTimeLocal = (value?: string | null): string => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -185,7 +194,8 @@ const AdminProductEdit: React.FC = () => {
     variants: [] as Variant[],
     cover_image: null as string | null,
     show_description: true,
-    show_specifications: true
+    show_specifications: true,
+    created_at: ''
   });
 
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
@@ -275,6 +285,7 @@ const AdminProductEdit: React.FC = () => {
         cover_image: productResponse.data.cover_image || null,
         show_description: productResponse.data.show_description !== undefined ? productResponse.data.show_description : true,
         show_specifications: productResponse.data.show_specifications !== undefined ? productResponse.data.show_specifications : true,
+        created_at: formatDateTimeLocal(productResponse.data.created_at),
       };
 
       setFormData(formDataToSet);
@@ -918,6 +929,9 @@ const AdminProductEdit: React.FC = () => {
       uploadFormData.append('dimensions', formData.dimensions);
       uploadFormData.append('warranty', formData.warranty);
       uploadFormData.append('delivery_time', formData.delivery_time);
+      if (formData.created_at) {
+        uploadFormData.append('created_at', formData.created_at);
+      }
 
       // Send categories (multiple) - prefer categories array over category_id
       console.log('Categories before sending:', formData.categories, 'Category ID:', formData.category_id);
@@ -1633,6 +1647,17 @@ const AdminProductEdit: React.FC = () => {
                     value={formData.delivery_time}
                     onChange={handleInputChange}
                     placeholder="مثال: 2-3 أيام عمل"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="created_at">تاريخ إنشاء المنتج</Label>
+                  <Input
+                    id="created_at"
+                    name="created_at"
+                    type="datetime-local"
+                    value={formData.created_at}
+                    onChange={handleInputChange}
                   />
                 </div>
 

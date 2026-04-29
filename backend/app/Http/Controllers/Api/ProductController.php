@@ -643,6 +643,7 @@ class ProductController extends Controller
             'size_guide_images' => 'nullable',
             'show_description' => 'sometimes|string|in:true,false,1,0',
             'show_specifications' => 'sometimes|string|in:true,false,1,0',
+            'created_at' => 'nullable|date',
         ]);
 
         // Transform string values to appropriate types
