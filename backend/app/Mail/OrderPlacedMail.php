@@ -97,6 +97,12 @@ class OrderPlacedMail extends Mailable
             $product = $item->product;
 
             $imagePath = null;
+            $variant = $item->productVariant;
+
+            if ($variant) {
+                $imagePath = $this->getVariantPrimaryImagePath($variant);
+            }
+
             if ($product) {
                 $productImages = $this->resolveProductImages($product);
 
@@ -107,8 +113,10 @@ class OrderPlacedMail extends Mailable
                     ])
                     ->first();
 
-                $imagePath = $product->cover_image
-                    ?: ($primaryImage?->image_path);
+                if (!$imagePath) {
+                    $imagePath = $product->cover_image
+                        ?: ($primaryImage?->image_path);
+                }
             }
 
             $unitPrice = (float) $item->price;
@@ -140,6 +148,29 @@ class OrderPlacedMail extends Mailable
                 'product_url' => $product ? $frontendUrl . '/product/' . $product->id : null,
             ];
         });
+    }
+
+    private function getVariantPrimaryImagePath($variant): ?string
+    {
+        $images = $variant->images ?? [];
+        if (!is_array($images) || empty($images)) {
+            return null;
+        }
+
+        $first = $images[0] ?? null;
+        if (is_string($first) && $first !== '') {
+            return $first;
+        }
+
+        if (is_array($first)) {
+            return $first['image_path'] ?? $first['image_url'] ?? null;
+        }
+
+        if (is_object($first)) {
+            return $first->image_path ?? $first->image_url ?? null;
+        }
+
+        return null;
     }
 
     private function buildDiscountSummary(): array

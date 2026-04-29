@@ -8,6 +8,33 @@ use App\Support\MediaUrl;
 
 class OrderResource extends JsonResource
 {
+    private function getVariantPrimaryImage($variant)
+    {
+        if (!$variant) {
+            return null;
+        }
+
+        $images = $variant->images ?? [];
+        if (!is_array($images) || empty($images)) {
+            return null;
+        }
+
+        $first = $images[0] ?? null;
+        if (is_string($first)) {
+            return MediaUrl::publicUrl($first);
+        }
+
+        if (is_array($first)) {
+            return MediaUrl::publicUrl($first['image_url'] ?? $first['image_path'] ?? null);
+        }
+
+        if (is_object($first)) {
+            return MediaUrl::publicUrl($first->image_url ?? $first->image_path ?? null);
+        }
+
+        return null;
+    }
+
     /**
      * Get primary image from product images (handles both array and Collection)
      */
@@ -84,7 +111,8 @@ class OrderResource extends JsonResource
                             'id' => $item->product->id,
                             'name' => $item->product->name,
                             'slug' => $item->product->slug,
-                            'image' => $this->getProductPrimaryImage($item->product->images),
+                            'image' => $this->getVariantPrimaryImage($item->productVariant)
+                                ?: $this->getProductPrimaryImage($item->product->images),
                         ] : null,
                     ];
                 });

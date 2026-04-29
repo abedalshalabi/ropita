@@ -146,6 +146,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           price: Number(item.price),
           image: (() => {
             const imgPath =
+              item.product.image ||
               item.product.cover_image ||
               item.product.images?.find((img: any) => img.is_primary)?.image_url ||
               item.product.images?.find((img: any) => img.is_primary)?.image_path ||

@@ -611,10 +611,11 @@ const Product = () => {
       }
 
       const buttonElement = event.currentTarget;
+      const cartImage = galleryImages[0] || product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg');
 
       // Trigger animation
       triggerAnimation(buttonElement, {
-        image: product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg'),
+        image: cartImage,
         name: product.name
       });
 
@@ -626,7 +627,7 @@ const Product = () => {
         price: displayPrice,
         original_price: displayOriginalPrice,
         discount_percentage: displayDiscountPercentage,
-        image: product.cover_image || (product.images && product.images[0] ? product.images[0] : '/placeholder.svg'),
+        image: cartImage,
         brand: product.brand || '',
         type: 'product',
         selected_options: matchingVariant?.variant_values,

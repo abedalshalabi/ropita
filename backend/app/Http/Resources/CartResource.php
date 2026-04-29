@@ -8,6 +8,57 @@ use App\Support\MediaUrl;
 
 class CartResource extends JsonResource
 {
+    private function getProductFallbackImageUrl(): ?string
+    {
+        $coverImage = MediaUrl::publicUrl($this->product->cover_image);
+        if ($coverImage) {
+            return $coverImage;
+        }
+
+        $images = $this->product->images ?? [];
+        if (!is_array($images) || empty($images)) {
+            return null;
+        }
+
+        $first = $images[0] ?? null;
+        if (is_string($first)) {
+            return MediaUrl::publicUrl($first);
+        }
+
+        if (is_array($first)) {
+            return MediaUrl::publicUrl($first['image_url'] ?? $first['image_path'] ?? null);
+        }
+
+        if (is_object($first)) {
+            return MediaUrl::publicUrl($first->image_url ?? $first->image_path ?? null);
+        }
+
+        return null;
+    }
+
+    private function getVariantPrimaryImageUrl(): ?string
+    {
+        if (!$this->product_variant_id || !$this->variant) {
+            return null;
+        }
+
+        $variantImages = $this->variant->images;
+        if (empty($variantImages) || !is_array($variantImages)) {
+            return null;
+        }
+
+        $firstImage = $variantImages[0] ?? null;
+        if (is_string($firstImage)) {
+            return MediaUrl::publicUrl($firstImage);
+        }
+
+        if (is_array($firstImage)) {
+            return MediaUrl::publicUrl($firstImage['image_url'] ?? $firstImage['image_path'] ?? null);
+        }
+
+        return null;
+    }
+
     /**
      * Transform the resource into an array.
      *
@@ -55,9 +106,14 @@ class CartResource extends JsonResource
                     return MediaUrl::normalizeImageEntry($imageArray);
                 }),
                 'cover_image' => MediaUrl::publicUrl($this->product->cover_image),
+                'image' => $this->getVariantPrimaryImageUrl() ?: $this->getProductFallbackImageUrl(),
             ],
             'product_variant_id' => $this->product_variant_id,
             'variant_values' => $this->variant_values,
+            'variant' => $this->variant ? [
+                'id' => $this->variant->id,
+                'images' => $this->variant->images,
+            ] : null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

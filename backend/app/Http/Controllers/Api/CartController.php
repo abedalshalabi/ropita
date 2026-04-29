@@ -18,7 +18,7 @@ class CartController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Cart::with(['product.category', 'product.brand', 'product.images']);
+        $query = Cart::with(['product.category', 'product.brand', 'product.images', 'variant']);
 
         $user = Auth::guard('sanctum')->user();
         if ($user) {
@@ -140,7 +140,7 @@ class CartController extends Controller
 
         return response()->json([
             'message' => 'تمت إضافة المنتج للسلة بنجاح',
-            'data' => new CartResource($cartItem->load(['product.category', 'product.brand', 'product.images']))
+            'data' => new CartResource($cartItem->load(['product.category', 'product.brand', 'product.images', 'variant']))
         ], 201);
     }
 
@@ -176,7 +176,7 @@ class CartController extends Controller
 
         return response()->json([
             'message' => 'تم تحديث الكمية بنجاح',
-            'data' => new CartResource($cart->load(['product.category', 'product.brand', 'product.images']))
+            'data' => new CartResource($cart->load(['product.category', 'product.brand', 'product.images', 'variant']))
         ]);
     }
 

@@ -453,7 +453,7 @@ class OrderController extends Controller
         }
 
         return response()->json([
-            'data' => new OrderResource($order->load('items.product'))
+            'data' => new OrderResource($order->load(['items.product', 'items.productVariant']))
         ]);
     }
 
