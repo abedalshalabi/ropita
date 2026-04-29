@@ -642,6 +642,35 @@ const Index = () => {
     socialSettings.social_media_telegram
   ].filter(Boolean);
 
+  const footerQuickLinks = (() => {
+    const headerLinks = Array.isArray(headerSettings?.header_bottom_nav_links)
+      ? headerSettings.header_bottom_nav_links
+      : [];
+
+    const visibleHeaderLinks = headerLinks
+      .filter((item: any) => {
+        const showValue = item?.show;
+        return showValue === undefined || showValue === true || showValue === 1 || showValue === "1" || showValue === "true";
+      })
+      .map((item: any) => ({
+        title: String(item?.title || "").trim(),
+        link: String(item?.link || "").trim(),
+      }))
+      .filter((item: any) => item.title && item.link);
+
+    if (visibleHeaderLinks.length > 0) {
+      return visibleHeaderLinks;
+    }
+
+    return [
+      { title: "من نحن", link: "/about" },
+      { title: "اتصل بنا", link: "/contact" },
+      { title: "الشحن والتوصيل", link: "/shipping" },
+      { title: "الإرجاع والاستبدال", link: "/returns" },
+      { title: "الضمان", link: "/warranty" },
+    ];
+  })();
+
   // Structured Data for Homepage - Multiple Schemas
   const structuredDataArray = [
     // Organization Schema
@@ -1212,11 +1241,30 @@ const Index = () => {
             <div>
               <h3 className="text-lg font-bold text-gray-800 mb-6 relative inline-block after:content-[''] after:absolute after:-bottom-2 after:right-0 after:w-1/2 after:h-1 after:bg-emerald-500 after:rounded-full">روابط سريعة</h3>
               <ul className="space-y-3 text-gray-600 font-medium">
-                <li><Link to="/about" className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block">من نحن</Link></li>
-                <li><Link to="/contact" className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block">اتصل بنا</Link></li>
-                <li><Link to="/shipping" className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block">الشحن والتوصيل</Link></li>
-                <li><Link to="/returns" className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block">الإرجاع والاستبدال</Link></li>
-                <li><Link to="/warranty" className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block">الضمان</Link></li>
+                {footerQuickLinks.map((item: { title: string; link: string }, index: number) => {
+                  const isExternal = /^https?:\/\//i.test(item.link);
+                  return (
+                    <li key={`${item.link}-${index}`}>
+                      {isExternal ? (
+                        <a
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block"
+                        >
+                          {item.title}
+                        </a>
+                      ) : (
+                        <Link
+                          to={item.link}
+                          className="hover:text-emerald-600 hover:translate-x-[-4px] transition-all inline-block"
+                        >
+                          {item.title}
+                        </Link>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
 
