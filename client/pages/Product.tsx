@@ -803,25 +803,41 @@ const Product = () => {
     setSelectedImage(0);
   }, [matchingVariant?.id]);
 
-  // Aggressive preloading for maximum variant-switch speed:
-  // preload current gallery + all variant images as soon as product data is available.
+  // Hybrid preloading:
+  // 1) Immediately preload current gallery + first image for each variant.
+  // 2) Preload remaining variant images in the background after initial paint/idle.
   useEffect(() => {
     if (!product) return;
 
-    const urls = new Set<string>();
+    const immediateUrls = new Set<string>();
+    const deferredUrls = new Set<string>();
+
     galleryImages.forEach((url) => {
-      if (url) urls.add(url);
+      if (url) immediateUrls.add(url);
     });
 
     (product.variants || []).forEach((variant: any) => {
-      if (Array.isArray(variant.images)) {
-        variant.images.forEach((imageUrl: string) => {
-          if (imageUrl) urls.add(imageUrl);
+      if (Array.isArray(variant.images) && variant.images.length > 0) {
+        const firstImage = variant.images[0];
+        if (firstImage) immediateUrls.add(firstImage);
+
+        variant.images.slice(1).forEach((imageUrl: string) => {
+          if (imageUrl) deferredUrls.add(imageUrl);
         });
       }
     });
 
-    preloadImages(Array.from(urls));
+    preloadImages(Array.from(immediateUrls));
+
+    const deferLoad = () => preloadImages(Array.from(deferredUrls));
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const id = (window as any).requestIdleCallback(deferLoad, { timeout: 1500 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+
+    const timer = window.setTimeout(deferLoad, 300);
+    return () => window.clearTimeout(timer);
   }, [product, galleryImages]);
 
   const nextImage = () => {
