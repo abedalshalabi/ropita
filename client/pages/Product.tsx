@@ -1569,14 +1569,14 @@ const Product = () => {
       {/* Image Modal/Lightbox */}
       {isImageModalOpen && product && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/95 p-4"
           onClick={() => setIsImageModalOpen(false)}
         >
           <div className="relative max-w-7xl w-full h-full flex items-center justify-center">
             {/* Close Button */}
             <button
               onClick={() => setIsImageModalOpen(false)}
-              className="absolute top-4 right-4 z-10 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-full p-2 transition-all"
+              className="absolute top-4 right-4 z-10 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full p-2 transition-all"
               aria-label="إغلاق"
             >
               <X className="w-6 h-6" />
@@ -1601,7 +1601,7 @@ const Product = () => {
                     e.stopPropagation();
                     prevImage();
                   }}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-full p-3 transition-all z-10"
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full p-3 transition-all z-10"
                   aria-label="الصورة السابقة"
                 >
                   <ChevronRight className="w-6 h-6" />
@@ -1611,7 +1611,7 @@ const Product = () => {
                     e.stopPropagation();
                     nextImage();
                   }}
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-full p-3 transition-all z-10"
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full p-3 transition-all z-10"
                   aria-label="الصورة التالية"
                 >
                   <ChevronLeft className="w-6 h-6" />
@@ -1621,7 +1621,7 @@ const Product = () => {
 
             {/* Image Counter */}
             {galleryImages.length > 1 && (
-              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-50 text-white px-4 py-2 rounded-full text-sm">
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white/95 text-gray-800 border border-gray-300 px-4 py-2 rounded-full text-sm">
                 {selectedImage + 1} / {galleryImages.length}
               </div>
             )}
@@ -1637,8 +1637,8 @@ const Product = () => {
                       setSelectedImage(index);
                     }}
                     className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${selectedImage === index
-                      ? 'border-white border-opacity-100 scale-110'
-                      : 'border-white border-opacity-30 hover:border-opacity-60'
+                      ? 'border-emerald-500 scale-110'
+                      : 'border-gray-300 hover:border-gray-500'
                       }`}
                   >
                     <img
