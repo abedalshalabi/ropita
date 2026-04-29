@@ -349,22 +349,22 @@ const Shipping = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             {shippingSteps.map((step, index) => (
-              <div key={`${step.title}-${index}`} className="text-center">
-                <div className="relative mb-6">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white">
+              <div
+                key={`${step.title}-${index}`}
+                className="relative rounded-2xl border border-emerald-100 bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+              >
+                <div className="relative mb-5">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white shadow-md">
                     {shippingStepIcons[index % shippingStepIcons.length]}
                   </div>
                   <div className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-yellow-400 text-sm font-bold text-gray-800">
                     {step.step || index + 1}
                   </div>
-                  {index < shippingSteps.length - 1 && (
-                    <div className="absolute left-full top-8 hidden h-0.5 w-full translate-x-4 bg-gray-300 md:block" />
-                  )}
                 </div>
-                <h3 className="mb-3 text-xl font-bold text-gray-800">{step.title}</h3>
-                <p className="text-gray-600">{step.description}</p>
+                <h3 className="mb-2 text-lg font-bold text-gray-800">{step.title}</h3>
+                <p className="text-sm leading-relaxed text-gray-600">{step.description}</p>
               </div>
             ))}
           </div>
