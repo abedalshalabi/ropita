@@ -69,6 +69,23 @@ interface ShippingSettings {
   shipping_cta_phone?: string;
 }
 
+const parseSettingsArray = <T,>(value: unknown, fallback: T[]): T[] => {
+  if (Array.isArray(value)) return value as T[];
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};
+
 const defaultShippingOptions: ShippingOption[] = [
   {
     title: "التوصيل العادي",
@@ -251,11 +268,11 @@ const Shipping = () => {
     );
   }
 
-  const shippingOptions = settings.shipping_options || defaultShippingOptions;
-  const shippingSteps = settings.shipping_steps || defaultShippingSteps;
-  const shippingCities = settings.shipping_cities || defaultShippingCities;
-  const shippingPolicies = settings.shipping_policies || defaultShippingPolicies;
-  const shippingNotes = settings.shipping_notes || defaultShippingNotes;
+  const shippingOptions = parseSettingsArray<ShippingOption>(settings.shipping_options, defaultShippingOptions);
+  const shippingSteps = parseSettingsArray<ShippingStep>(settings.shipping_steps, defaultShippingSteps);
+  const shippingCities = parseSettingsArray<ShippingCity>(settings.shipping_cities, defaultShippingCities);
+  const shippingPolicies = parseSettingsArray<ShippingPolicy>(settings.shipping_policies, defaultShippingPolicies);
+  const shippingNotes = parseSettingsArray<ShippingNote>(settings.shipping_notes, defaultShippingNotes);
 
   return (
     <div className="min-h-screen bg-gray-50 arabic">
@@ -437,7 +454,8 @@ const Shipping = () => {
 
           <div className="mx-auto max-w-4xl space-y-6">
             {shippingNotes.map((note, index) => {
-              const style = noteStyles[note.type || "info"];
+              const noteType = (note.type || "info") as keyof typeof noteStyles;
+              const style = noteStyles[noteType] || noteStyles.info;
               const IconComponent = style.component;
 
               return (
