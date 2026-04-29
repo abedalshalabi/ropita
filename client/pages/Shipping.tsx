@@ -69,6 +69,33 @@ interface ShippingSettings {
   shipping_cta_phone?: string;
 }
 
+const parseStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch {
+      // Not JSON array, continue with plain text fallback.
+    }
+
+    return trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
 const parseSettingsArray = <T,>(value: unknown, fallback: T[]): T[] => {
   if (Array.isArray(value)) return value as T[];
 
@@ -268,7 +295,11 @@ const Shipping = () => {
     );
   }
 
-  const shippingOptions = parseSettingsArray<ShippingOption>(settings.shipping_options, defaultShippingOptions);
+  const shippingOptionsRaw = parseSettingsArray<ShippingOption>(settings.shipping_options, defaultShippingOptions);
+  const shippingOptions = shippingOptionsRaw.map((option) => ({
+    ...option,
+    features: parseStringArray(option.features),
+  }));
   const shippingSteps = parseSettingsArray<ShippingStep>(settings.shipping_steps, defaultShippingSteps);
   const shippingCities = parseSettingsArray<ShippingCity>(settings.shipping_cities, defaultShippingCities);
   const shippingPolicies = parseSettingsArray<ShippingPolicy>(settings.shipping_policies, defaultShippingPolicies);
