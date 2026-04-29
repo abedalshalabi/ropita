@@ -40,6 +40,7 @@ jobs:
         env:
           VITE_FRONTEND_URL: ${{ secrets.VITE_FRONTEND_URL }}
           VITE_BACKEND_PUBLIC_URL: ${{ secrets.VITE_BACKEND_PUBLIC_URL }}
+          VITE_FACEBOOK_PIXEL_ID: ${{ secrets.VITE_FACEBOOK_PIXEL_ID }}
         run: |
           npm install
           npm run build
