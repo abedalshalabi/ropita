@@ -1238,6 +1238,36 @@ const Products = () => {
     };
   }, [hasMore, loadMoreProducts, products.length]); // Re-attach when products change (position changes)
 
+  // Fallback auto-load when observer misses intersections on some browsers/layout states.
+  useEffect(() => {
+    const checkAndAutoLoad = () => {
+      if (!hasMore || loading || loadingMore || loadingRef.current) {
+        return;
+      }
+
+      const trigger = document.getElementById('load-more-trigger');
+      if (!trigger) {
+        return;
+      }
+
+      const rect = trigger.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 240) {
+        loadMoreProducts();
+      }
+    };
+
+    checkAndAutoLoad();
+    window.addEventListener('scroll', checkAndAutoLoad, { passive: true });
+    window.addEventListener('resize', checkAndAutoLoad);
+    const intervalId = window.setInterval(checkAndAutoLoad, 1200);
+
+    return () => {
+      window.removeEventListener('scroll', checkAndAutoLoad);
+      window.removeEventListener('resize', checkAndAutoLoad);
+      window.clearInterval(intervalId);
+    };
+  }, [hasMore, loading, loadingMore, products.length, loadMoreProducts]);
+
   useEffect(() => {
     hasRestoredScrollRef.current = false;
     pendingScrollRestoreRef.current = null;
@@ -2070,17 +2100,11 @@ const Products = () => {
                       <span className="mr-2 text-gray-600">جاري تحميل المزيد...</span>
                     </div>
                   ) : hasMore ? (
-                    <div
-                      className="flex flex-col items-center gap-2 cursor-pointer"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        loadMoreProducts();
-                      }}
-                    >
+                    <div className="flex flex-col items-center gap-2">
                       <div className="animate-pulse">
                         <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
                       </div>
-                      <p className="text-sm text-gray-500 hover:text-emerald-600 underline">جاري التحميل... (اضغط هنا للتحميل اليدوي)</p>
+                      <p className="text-sm text-gray-500">جاري التحميل تلقائيًا...</p>
                     </div>
                   ) : (
                     <p className="text-gray-500">تم عرض جميع المنتجات</p>
